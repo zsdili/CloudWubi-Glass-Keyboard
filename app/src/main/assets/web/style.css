@@ -7,23 +7,24 @@ body { background: transparent; }
 button { border: none; background: none; font-family: inherit; cursor: pointer; color: inherit; touch-action: manipulation; }
 
 :root {
-  --kb-bg: rgba(244, 247, 252, .9);
-  --kb-border: rgba(255, 255, 255, .9);
-  --key-bg: rgba(255, 255, 255, .82);
-  --key-bg2: rgba(255, 255, 255, .66);
-  --fn-bg: linear-gradient(155deg, rgba(255,255,255,.64), rgba(232,240,252,.30));
-  --fn-border: rgba(255,255,255,.78);
-  --key-fg: #1b2436;
-  --key-fg-soft: #5b6680;
-  --accent: #2f9bff;
+  --kb-bg: rgba(46, 53, 70, .86);
+  --kb-border: rgba(190, 205, 240, .18);
+  --key-bg: rgba(72, 81, 102, .58);
+  --key-bg2: rgba(72, 81, 102, .46);
+  --fn-bg: linear-gradient(155deg, rgba(122,136,170,.42), rgba(66,75,98,.28));
+  --fn-border: rgba(190,205,240,.22);
+  --key-fg: #eef2f9;
+  --key-fg-soft: #aeb8cc;
+  --accent: #52b5ff;
   --accent2: #19c5ff;
-  --accent-grad: linear-gradient(160deg, #4db4ff 0%, #1f8fff 55%, #1276f5 100%);
-  --line: rgba(60, 80, 120, .12);
-  --cand-bg: rgba(255, 255, 255, .78);
-  --shadow-key: 0 2px 7px rgba(35, 48, 86, .10), inset 0 1px 0 rgba(255, 255, 255, .95);
-  --shadow-fn: 0 2px 9px rgba(40,62,104,.15), inset 0 1px 0 rgba(255,255,255,.96), inset 0 -3px 6px rgba(100,135,190,.16);
+  --accent-grad: linear-gradient(160deg, #5dbbff 0%, #2f96ff 55%, #1a78f0 100%);
+  --line: rgba(190, 205, 240, .14);
+  --cand-bg: rgba(58, 66, 86, .62);
+  --shadow-key: 0 2px 8px rgba(0,0,0,.34), inset 0 1px 0 rgba(205,220,250,.15);
+  --shadow-fn: 0 2px 9px rgba(0,0,0,.4), inset 0 1px 0 rgba(205,220,250,.2), inset 0 -3px 6px rgba(0,0,0,.2);
   --radius-key: 12px;
-  --row-gap: 4px;
+  --key-gap: 4px;
+  --row-gap: 8px;
   --kh-letter: 45px;   /* JS 覆盖 */
   --fs: 51px;          /* JS 覆盖：功能键方形尺寸 */
   --panels-h: 273px;   /* JS 覆盖：面板统一高度，防切换闪动 */
@@ -75,7 +76,7 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
               radial-gradient(150px 80px at 48% 20%, rgba(255, 205, 130, .5), transparent 70%),
               radial-gradient(130px 80px at 72% 45%, rgba(130, 235, 190, .5), transparent 70%),
               radial-gradient(160px 90px at 92% 30%, rgba(120, 190, 255, .55), transparent 70%);
-  filter: blur(14px); opacity: .8; pointer-events: none; z-index: 0;
+  filter: blur(14px); opacity: .42; pointer-events: none; z-index: 0;
 }
 #kb.theme-dark::before { opacity: .32; filter: blur(18px); }
 #kb.theme-neon::before {
@@ -133,7 +134,7 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 .panel { position: absolute; top: 0; right: 0; bottom: 0; left: 0; padding: 3px 6px 6px; display: none; flex-direction: column; }
 .panel.active { display: flex; }
 
-.keyrow { display: flex; flex-shrink: 0; gap: var(--row-gap); margin-bottom: var(--row-gap); }
+.keyrow { display: flex; flex-shrink: 0; gap: var(--key-gap, 4px); margin-bottom: var(--row-gap, 8px); }
 .keyrow:last-child { margin-bottom: 0; }
 #rowNum, #row1, #row2 { height: var(--kh-letter); }
 #row2 { margin-left: var(--row-indent, 0); margin-right: var(--row-indent, 0); }
@@ -146,9 +147,10 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
   border: 1px solid rgba(255, 255, 255, .85);
   box-shadow: var(--shadow-key);
   display: flex; align-items: center; justify-content: center;
+  transform: translateZ(0);   /* 强制提升合成层：软件GPU(如Redroid/无硬件加速)下确保键首次即绘制；真机按压动画也更顺 */
   transition: transform .05s, background .1s;
 }
-.key.press, .key:active { transform: scale(.94); background: var(--key-bg2); box-shadow: 0 1px 3px rgba(35,48,86,.14), inset 0 2px 7px rgba(110,150,210,.30); }
+.key.press, .key:active { transform: translateZ(0) scale(.94); background: var(--key-bg2); box-shadow: 0 1px 3px rgba(35,48,86,.14), inset 0 2px 7px rgba(110,150,210,.30); }
 /* 字母键：标点上标 + 字母主标（垂直排列） */
 .key.letter-key { flex-direction: column; }
 .k-punct { font-size: 11px; line-height: 1; color: var(--key-fg-soft); opacity: .85; }

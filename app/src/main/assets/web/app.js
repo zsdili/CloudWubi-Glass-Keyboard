@@ -47,7 +47,7 @@ function playClick() {
     o.stop(audioCtx.currentTime + 0.06);
   } catch (e) {}
 }
-function vib(ms) { if (settings.vib) bridge(function (b) { b.vibrate(ms && ms > 0 ? ms : 14); }); }
+function vib(ms) { if (settings.vib) bridge(function (b) { b.vibrate(ms && ms > 0 ? ms : 18); }); }
 var toastTimer = null;
 function toast(msg) {
   var t = document.querySelector(".toast");
@@ -232,9 +232,9 @@ var NUM_ROW = [
 var COMMON_PUNCT = ["，","。","？","！","、","：","；","“”","‘’","（","）","《","》","…","—","·"];
 /* 字母键上滑标点（键面上标，上滑上屏） */
 var KEY_PUNCT = {
-  q:"（", w:"）", e:"‘", r:"’", t:"【", y:"】", u:"「", i:"」", o:"〈", p:"〉",
-  a:"、", s:"；", d:"：", f:"“", g:"”", h:"《", j:"》", k:"…", l:"—",
-  z:"·", x:"～", c:"￥", v:"％", b:"*", n:"/", m:"@"
+  q:"《", w:"》", e:"『", r:"』", t:"…", y:"—", u:"［", i:"］", o:"｛", p:"｝",
+  a:"~", s:"@", d:"#", f:"$", g:"%", h:"&", j:"*", k:"(", l:")",
+  z:"'", x:"/", c:"-", v:"_", b:":", n:";", m:"、"
 };
 function letterKey(c) {
   var k = el("button", "key letter-key");
@@ -360,8 +360,7 @@ function renderNumber() {
   g.appendChild(npK(".", "np-dot", { "data-num": "." }, 3, 5));
   // 底行：返回 / 空格(点=空格，长按=语音) / 0（在 8 正下方） / 符号 / 回车
   g.appendChild(npK("返回", "fnr", { "data-act": "backLetters" }, 4, 1));
-  var sp = npK("", "np-space", { "data-act": "space", "aria-label": "空格" }, 4, 2);
-  sp.innerHTML = '<span class="np-spmic">🎤</span>'; g.appendChild(sp);
+  g.appendChild(npK("％", "fnr", { "data-calc": "%", "aria-label": "百分号" }, 4, 2));
   g.appendChild(npK("0", "", { "data-num": "0" }, 4, 3));
   g.appendChild(npK("符号", "fnr", { "data-act": "goSymbol" }, 4, 4));
   g.appendChild(npK("↵", "enter", { "data-act": "enter", "aria-label": "回车" }, 4, 5));
@@ -1266,18 +1265,20 @@ function bindStatic() {
 /* 尺寸自适应：键宽驱动键高（字母键 宽:高=3:4，功能键 1:1） */
 function applyLayout() {
   var W = window.innerWidth || 360;
-  var gap = 4;
-  var kw = (W - 12 - 9 * gap) / 10;   // 面板左右padding 6+6，10键9间隙
+  var hgap = 4;   // 水平键间隙
+  var vgap = 8;   // 垂直行间隙（在原基础上加大一倍）
+  var kw = (W - 12 - 9 * hgap) / 10;   // 面板左右padding 6+6，10键9间隙
   var kh = Math.round(kw * 4 / 3);    // 字母键高（宽:高=3:4）
   var fs = Math.round(kw * 1.5);      // 功能键方形（flex1.5 → 宽=1.5kw）
-  var panelsH = 9 + kh * 3 + fs * 2 + gap * 4;
+  var panelsH = 9 + kh * 3 + fs * 2 + vgap * 4;
   var root = document.documentElement;
   root.style.setProperty("--kh-letter", kh + "px");
   root.style.setProperty("--fs", fs + "px");
   root.style.setProperty("--panels-h", panelsH + "px");
-  root.style.setProperty("--row-gap", gap + "px");
+  root.style.setProperty("--key-gap", hgap + "px");
+  root.style.setProperty("--row-gap", vgap + "px");
   root.style.setProperty("--kw", Math.round(kw) + "px");
-  root.style.setProperty("--row-indent", Math.round((kw + gap) / 2) + "px");
+  root.style.setProperty("--row-indent", Math.round((kw + hgap) / 2) + "px");
   root.style.setProperty("--safe-b", "8px");
   var total = 42 + 30 + panelsH + 8;  // candbar42 + toolbar30 + panels + 底部安全区
   bridge(function (b) { if (b.updateHeight) b.updateHeight(total); });
@@ -1286,7 +1287,7 @@ function applyLayout() {
 window.addEventListener("resize", applyLayout);
 
 function init() {
-  L("app init v2.0, bridge=" + isApk());
+  L("app init v2.1, bridge=" + isApk());
   renderLetters();
   renderNumber();
   renderPunct();
@@ -1300,7 +1301,7 @@ function init() {
   applyLayout();
   setTimeout(applyLayout, 350);   // 大词库解析后窗口稳定，补报高度（治首次 insets=0）
   setTimeout(applyLayout, 1000);
-  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.0 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
+  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.1 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
   if (!isApk()) {
     document.body.classList.add("preview");
     toast("浏览器预览：点击输入框获得焦点后试用");

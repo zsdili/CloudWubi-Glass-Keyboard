@@ -315,20 +315,27 @@ public class GlassImeService extends InputMethodService {
         }
 
         @JavascriptInterface
-        public void vibrate() { vibrate(14); }
+        public void vibrate() { vibrate(18); }
 
         @JavascriptInterface
         public void vibrate(final int ms) {
             try {
                 Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-                if (v == null || !v.hasVibrator()) return;
-                int dur = ms <= 0 ? 14 : Math.min(ms, 60);
+                if (v == null || !v.hasVibrator()) {
+                    android.util.Log.d("CloudWubiVib", "设备无振动器");
+                    return;
+                }
+                int dur = ms <= 0 ? 18 : Math.min(ms, 60);
+                android.util.Log.d("CloudWubiVib", "触发振动 dur=" + dur);
                 if (Build.VERSION.SDK_INT >= 26) {
-                    v.vibrate(VibrationEffect.createOneShot(dur, VibrationEffect.DEFAULT_AMPLITUDE));
+                    // 明确幅度（1-255），避免部分机型 DEFAULT_AMPLITUDE 过弱感知不到
+                    v.vibrate(VibrationEffect.createOneShot(dur, 150));
                 } else {
                     v.vibrate(dur);
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                android.util.Log.d("CloudWubiVib", "振动异常 " + e.getMessage());
+            }
         }
 
         @JavascriptInterface
