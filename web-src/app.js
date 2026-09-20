@@ -169,6 +169,26 @@ var SYMBOL_WORDS = [
 ];
 
 /* ---------- 五笔查询 ---------- */
+/* ===== 云端词库（词组 + 被砍单字按需加载；端侧只留简码+常用字，离线/无网降级为端侧）===== */
+var CLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/cloud/";
+var cloudIndex = {};        // code -> [{t,f}]
+var shardPending = {};     // prefix -> Promise
+function ensureShard(prefix) {
+  if (shardPending[prefix]) return shardPending[prefix];
+  shardPending[prefix] = new Promise(function (res) {
+    try {
+      fetch(CLOUD_BASE + prefix + ".json").then(function (r) { return r.json(); }).then(function (j) {
+        Object.keys(j).forEach(function (code) {
+          (cloudIndex[code] = cloudIndex[code] || []).push.apply(cloudIndex[code],
+            j[code].map(function (a) { return { t: a[0], f: a[1] }; }));
+        });
+        res(1);
+      }).catch(function () { res(0); });
+    } catch (e) { res(0); }
+  });
+  return shardPending[prefix];
+}
+
 function queryWubi(code) {
   var seen = {}, exact = [], prefix = [];
   function add(o, into) {
@@ -179,7 +199,8 @@ function queryWubi(code) {
     var re = new RegExp("^" + code.replace(/z/g, ".") + "$");
     Object.keys(WUBI).forEach(function (k) { if (re.test(k)) (WUBI[k] || []).forEach(function (o) { add(o, prefix); }); });
   } else {
-    (WUBI[code] || []).forEach(function (o) { add(o, exact); });   // 精确编码（简码锚字/本码词组）
+    (WUBI[code] || []).forEach(function (o) { add(o, exact); });   // 端侧精确（简码/常用字）
+    (cloudIndex[code] || []).forEach(function (o) { add(o, exact); }); // 云端精确（词组/被砍单字，已缓存则即时）
     (USER_WORDS[code] || []).forEach(function (w) { add({ t: w, f: 8e6 }, exact); });  // 用户私有词精确命中、高权重（recent 仍置顶）
     if (cLen < 4) Object.keys(WUBI).forEach(function (k) {          // 前缀补全
       if (k !== code && k.indexOf(code) === 0) (WUBI[k] || []).forEach(function (o) { add(o, prefix); });
@@ -688,6 +709,13 @@ function afterBufChange() {
   if (state.mode === "en") state.cands = enPrefixCands(state.buf);
   else state.cands = state.buf ? queryWubi(state.buf) : [];
   renderCands();
+  // 满4码：异步拉云端词组分片，回来后（编码未变）刷新候选；无网/失败则保持端侧，不阻塞输入
+  if (state.mode !== "en" && state.buf.length === 4) {
+    var cur = state.buf;
+    ensureShard(cur.slice(0, 2)).then(function (ok) {
+      if (ok && state.buf === cur) { state.cands = queryWubi(cur); renderCands(); }
+    });
+  }
 }
 function enPrefixCands(pre) {
   pre = pre.toLowerCase();

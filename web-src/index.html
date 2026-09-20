@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="kb">
+  <input id="testInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+  <!-- 候选栏 -->
+  <div id="candbar">
+    <button class="mode-btn" id="modeBtn" type="button">混</button>
+    <div id="cands"></div>
+  </div>
+
+  <!-- 工具栏：贴 + [123|符] 在左；表情/译/智… 在右，表情在译前；全局统一显示 -->
+  <div id="toolbar">
+    <button class="tbtn" data-act="clip" type="button" title="剪贴板">贴</button>
+    <div class="num-sym" id="numSymSwitch">
+      <button data-act="number" type="button">算</button>
+      <button data-act="punct" type="button">符</button>
+    </div>
+    <div class="tfill"></div>
+    <button class="tbtn" data-act="emoji" type="button" title="表情">☺</button>
+    <button class="tbtn" id="trBtn" data-act="translate" type="button" title="翻译">译</button>
+    <button class="tbtn" data-act="phrase" type="button" title="常用短语">智</button>
+    <button class="tbtn" data-act="settings" type="button" title="设置">⚙</button>
+    <button class="tbtn" data-act="switch" type="button" title="切换键盘">⌨</button>
+    <button class="tbtn" data-act="hide" type="button" title="收起">∨</button>
+  </div>
+
+  <div id="panels">
+    <!-- 字母主键盘 -->
+    <div class="panel active" id="p-letters">
+      <div class="keyrow" id="rowNum"></div>
+      <div class="keyrow" id="row1"></div>
+      <div class="keyrow" id="row2"></div>
+      <div class="keyrow" id="row3"></div>
+      <div class="keyrow" id="row4"></div>
+    </div>
+
+    <!-- 数字键盘：左运算符长条 / 中数字(左上1) / 右功能；底行返回与符号 -->
+    <div class="panel" id="p-number">
+      <div id="calcbar">
+        <button class="calc-expr" id="calcExprBtn" type="button"></button>
+        <button class="calc-res" id="calcResBtn" type="button"></button>
+      </div>
+      <div id="npGrid"></div>
+    </div>
+
+    <!-- 中英文标点符号键盘：数字/符号切换统一在工具栏 -->
+    <div class="panel" id="p-punct">
+      <div class="segbar">
+        <div class="seg-title">符号</div>
+      </div>
+      <div class="seg-tabs" id="punctSeg"></div>
+      <div class="body-row">
+        <div id="punctPages"></div>
+        <div class="panel-side">
+          <button class="side-del" data-act="del" type="button">⌫</button>
+          <button class="confirm" data-act="letters" type="button">确认</button>
+        </div>
+      </div>
+      <div class="dots" id="punctDots"></div>
+    </div>
+
+    <!-- 表情键盘 -->
+    <div class="panel" id="p-emoji">
+      <div class="segbar">
+        <div class="seg-title">表情</div>
+      </div>
+      <div class="body-row">
+        <div id="emojiPages"></div>
+        <div class="panel-side">
+          <button class="side-del" data-act="del" type="button">⌫</button>
+          <button class="confirm" data-act="letters" type="button">确认</button>
+        </div>
+      </div>
+      <div class="emoji-tabs" id="emojiTabs"></div>
+      <div class="dots" id="emojiDots"></div>
+    </div>
+
+    <!-- 剪贴板 -->
+    <div class="panel" id="p-clip">
+      <div class="segbar">
+        <div class="seg-title">剪贴板</div>
+        <button class="seg-clear" id="clipClear" type="button">清空</button>
+      </div>
+      <div id="clipList"></div>
+    </div>
+
+    <!-- 常用短语 -->
+    <div class="panel" id="p-phrase">
+      <div class="segbar">
+        <div class="seg-title">常用短语</div>
+      </div>
+      <div class="set-scroll" id="phraseList"></div>
+    </div>
+
+    <!-- 设置 -->
+    <div class="panel" id="p-settings">
+      <div class="segbar">
+        <div class="seg-title">设置</div>
+      </div>
+      <div class="set-scroll">
+        <div class="set-group">主题（单选）</div>
+        <button class="set-action sel" data-theme="" type="button">清透玻璃（默认）</button>
+        <button class="set-action" data-theme="dark" type="button">深色磨砂</button>
+        <button class="set-action" data-theme="neon" type="button">幻紫霓虹</button>
+        <div class="set-group">可同时开启（与键盘功能共存）</div>
+        <div class="set-row"><span>输入联想</span><button class="toggle on" data-set="sug" type="button"></button></div>
+        <div class="set-row"><span>整句翻译</span><button class="toggle" data-set="trans" type="button"></button></div>
+        <div class="set-row"><span>按键音</span><button class="toggle on" data-set="sound" type="button"></button></div>
+        <div class="set-row"><span>震动反馈</span><button class="toggle on" data-set="vib" type="button"></button></div>
+        <div class="set-row"><span>玻璃模糊</span><button class="toggle on" data-set="blur" type="button"></button></div>
+        <button class="set-action primary" id="setMic" type="button">授权 / 检测麦克风</button>
+        <div class="set-group">语音引擎（识别不出结果时可手动切换；自动模式按国内优先）</div>
+        <div id="engineList"></div>
+        <div class="set-group">数据管理（可一键清空，仅存本机）</div>
+        <button class="set-action" id="clearUserWords" type="button">清空我学习的自定义词</button>
+        <button class="set-action" id="clearRecent" type="button">清空最近用字记录</button>
+        <div class="set-group">反馈与诊断（开发阶段）</div>
+        <button class="set-action" id="diagCopy" type="button">复制诊断信息</button>
+        <button class="set-action" id="diagShare" type="button">反馈问题（微信/QQ/邮件分享）</button>
+        <pre class="diag-view" id="diagView"></pre>
+        <div class="ver" id="verLabel"></div>
+      </div>
+    </div>
+
+  </div>
+  <!-- 语音浮层：覆盖整个键盘，临时模态，左上固定关闭按钮 -->
+  <div id="voiceOverlay">
+    <button id="voClose" type="button">✕ 关闭</button>
+    <div id="voBox">
+      <div class="vo-rings"><span></span><span></span><span></span><div class="vo-dot" id="voDot"></div></div>
+      <div id="voStatus">长按空格说话</div>
+      <div id="voWave"></div>
+      <div id="voPartial"></div>
+      <button id="voPerm" type="button">点此授权麦克风</button>
+      <div id="voDbg"></div>
+      <div id="voHint">上滑取消 · 松开上屏</div>
+    </div>
+  </div>
+</div>
+<script src="data_wubi.js"></script>
+<script src="data_en.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
