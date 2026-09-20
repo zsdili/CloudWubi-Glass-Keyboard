@@ -78,6 +78,8 @@ function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch 
 
 var state = {
   mode: "smart",        // smart(中英混输/五笔) | wubi(纯五笔) | en(英文)
+  userMode: "smart",    // 用户在普通框的模式偏好（密码框临时切英文，退出恢复）
+  segLen: 0,            // 文本框划词已处理长度（只统计新增）
   panel: "letters",
   buf: "",              // 五笔编码缓冲（英文逐字母即时上屏，不用 buf）
   enPre: "",            // 英文当前正在拼写的单词前缀（补全用）
@@ -110,7 +112,12 @@ Object.keys(WUBI).forEach(function (code) {
     if (o.t.length === 1 && (!UC[o.t] || code.length > UC[o.t].length)) UC[o.t] = code;
   });
 });
-var USER_WORDS = load("cw_user_words", {});
+/* ===== 本地高频词（v3.1）：周窗统计 + 500封顶 + 缓存优先；替代旧 USER_WORDS ===== */
+var LOCAL_FREQ = load("cw_local_freq", {});    // {code:[{t:词,c:周内次数,d:最后日天序号}]}
+var LOCAL_DAY = Math.floor(Date.now() / 86400000);
+var LOCAL_TODAY = load("cw_local_today", { d: LOCAL_DAY, n: 0 });   // 今日新增词数
+if (LOCAL_TODAY.d !== LOCAL_DAY) LOCAL_TODAY = { d: LOCAL_DAY, n: 0 };
+var LOCAL_CAP = 500, FREQ_HOT = 50, WEEK_DAYS = 7;
 /* ---------- 英文数据 ---------- */
 var EN_RAW = window.EN_WORDS || [];
 var EN_WORDS = Array.isArray(EN_RAW) ? EN_RAW : String(EN_RAW).split(/\s+/).filter(Boolean);
@@ -201,7 +208,7 @@ function queryWubi(code) {
   } else {
     (WUBI[code] || []).forEach(function (o) { add(o, exact); });   // 端侧精确（简码/常用字）
     (cloudIndex[code] || []).forEach(function (o) { add(o, exact); }); // 云端精确（词组/被砍单字，已缓存则即时）
-    (USER_WORDS[code] || []).forEach(function (w) { add({ t: w, f: 8e6 }, exact); });  // 用户私有词精确命中、高权重（recent 仍置顶）
+    (LOCAL_FREQ[code] || []).forEach(function (e) { add({ t: e.t, f: 1.05e7 + e.c * 500 }, exact); });  // 本地高频缓存优先（recent 置顶之外，频次越高越靠前）
     if (cLen < 4) Object.keys(WUBI).forEach(function (k) {          // 前缀补全
       if (k !== code && k.indexOf(code) === 0) (WUBI[k] || []).forEach(function (o) { add(o, prefix); });
     });
@@ -387,8 +394,8 @@ function renderLetterFaces() {
 function punctToggleKey(id) {
   var k = el("button", "key fn punct-toggle");
   k.setAttribute("type", "button"); k.id = id;
-  var m = el("span", "pt-main"); var a = el("span", "pt-alt");
-  k.appendChild(m); k.appendChild(a);
+  var a = el("span", "pt-alt"); var m = el("span", "pt-main");
+  k.appendChild(a); k.appendChild(m);   // 备用（！/？）小字在上、主标点（，/。）在下（与字母键上标位置一致）
   return k;
 }
 function renderPunctToggles() {
@@ -636,28 +643,16 @@ function commitText(t) {
   state.before += t;
   rememberRecent(t);
   renderCands(); renderLetterFaces();
-  scheduleCtx();
+  scheduleCtx(); scheduleSegment();
 }
 function rememberRecent(t) {
   if (!/[\u4e00-\u9fa5]/.test(t)) return;
   function put(x) { var ix = state.recent.indexOf(x); if (ix >= 0) state.recent.splice(ix, 1); state.recent.unshift(x); }
-  if (t.length >= 2) { put(t); learnUserWord(t); }    // 整词：会话置顶 + 持久化用户词学习
+  if (t.length >= 2) put(t);    // 整词会话置顶（持久化统计统一走文本框划词 scheduleSegment）
   for (var i = t.length - 1; i >= 0; i--) put(t[i]);  // 单字也记录，逆序使首字靠前
   if (state.recent.length > 200) state.recent.length = 200;
   save("cw_recent", state.recent);
 }
-/* ===== 用户私有白名单（v2.8）：仅学习用户主动上屏、静态词库未收的规范多字词；精确匹配、不连锁 ===== */
-var UW_BLACK = ["法轮","赌博","赌场","六合彩","海洛因","冰毒","大麻","摇头丸","贩毒","吸毒","制毒","毒品",
-  "自杀","自残","轻生","厌世","想死","寻死","绝望","同归于尽","杀人","杀人放火","投毒","放火","爆炸物","枪支","买枪","弹药",
-  "操你","艹你","日你","妈的逼","傻逼","草泥马","王八蛋","婊子","淫娃","卖淫","嫖娼","妓女","情色","色情片",
-"国家","政府","政策","政治","政权","选举","主席","总统","外交","主权","领土","官员","革命","共产党","国民党",
-"宗教","教堂","教会","寺庙","寺院","菩萨","和尚","道士","圣经","古兰经","祈祷","上帝","佛教","道教","伊斯兰","穆斯林",
-"战争","战役","战场","武器","枪支","弹药","导弹","军队","军事","士兵","开战","核武",
-"民族","种族","汉族","藏族","维吾尔","回族","少数民族",
-"民俗","风俗","春节","过年","端午","中秋","清明","庙会","算命","风水","农历","祭祖","春联",
-"中国","中共","中央","人民","人大","书记","两会","公安","政协","常委","国务院","民国","法院","文革","大跃进","抗日",
-"苏维埃","罢工","集会","游行","示威","监狱","警察","武警","国防部","佛祖","喇嘛","基督","圣母","解放军","红军","屠杀",
-"红包","元宵","重阳","西藏","拉萨","自治区","新年"];
 function userPhraseCode(t) {
   var ch = [...t], fc = function (i) { return UC[ch[i]] || ""; };
   if (ch.length === 2) return fc(0).slice(0, 2) + fc(1).slice(0, 2);
@@ -665,18 +660,62 @@ function userPhraseCode(t) {
   if (ch.length === 4) return fc(0)[0] + fc(1)[0] + fc(2)[0] + fc(3)[0];
   return fc(0)[0] + fc(1)[0] + fc(2)[0] + fc(ch.length - 1)[0];
 }
-function learnUserWord(t) {
-  if (!/^[\u4e00-\u9fa5]{2,10}$/.test(t)) return;
-  for (var i = 0; i < UW_BLACK.length; i++) if (t.indexOf(UW_BLACK[i]) >= 0) return;
-  var ch = [...t];
-  if (!ch.every(function (c) { return UC[c]; })) return;
-  var code = userPhraseCode(t);
-  if (!/^[a-y]{4}$/.test(code)) return;
-  if ((WUBI[code] || []).some(function (o) { return o.t === t; })) return;   // 静态已收录则不学
-  var arr = USER_WORDS[code] || (USER_WORDS[code] = []);
-  if (arr.indexOf(t) < 0) arr.unshift(t);
-  var n = 0, k; for (k in USER_WORDS) n += USER_WORDS[k].length;   // 上限 1000
-  if (n <= 1000) save("cw_user_words", USER_WORDS);
+/* ===== 本地高频词：以"文本框真实文本"划词统计（非候选栏）；用户自有设备、无过滤、不分发 ===== */
+function segLexicon() {
+  var w2c = {};
+  function addIdx(idx) { Object.keys(idx).forEach(function (code) { (idx[code] || []).forEach(function (o) {
+    if (o.t && o.t.length >= 2 && !w2c[o.t]) w2c[o.t] = code;
+  }); }); }
+  addIdx(WUBI); addIdx(cloudIndex);
+  Object.keys(LOCAL_FREQ).forEach(function (code) { LOCAL_FREQ[code].forEach(function (e) { if (!w2c[e.t]) w2c[e.t] = code; }); });
+  return w2c;
+}
+function segmentText(text, w2c) {
+  var s = text.replace(/[A-Za-z0-9]+/g, " "), out = [], i = s.length;
+  while (i > 0) {
+    if (!/[一-龥]/.test(s[i - 1])) { i--; continue; }
+    var hit = null;
+    for (var L = Math.min(8, i); L >= 2; L--) { var w = s.slice(i - L, i); if (w2c[w]) { hit = w; break; } }
+    if (hit) { out.push(hit); i -= hit.length; } else i--;
+  }
+  return out.reverse();
+}
+function bumpLocal(t, code) {
+  var today = Math.floor(Date.now() / 86400000);
+  var arr = LOCAL_FREQ[code] || (LOCAL_FREQ[code] = []);
+  var e = arr.filter(function (x) { return x.t === t; })[0];
+  if (!e) { e = { t: t, c: 0, d: today }; arr.push(e); LOCAL_TODAY.n += 1; save("cw_local_today", LOCAL_TODAY); }
+  e.c = (today - e.d >= WEEK_DAYS) ? 1 : e.c + 1; e.d = today;
+  enforceLocalCap(); save("cw_local_freq", LOCAL_FREQ);
+}
+function segmentAndLearn() {
+  if (state.isPassword || state.numPassword) return;
+  var before = getBefore(120), from = state.segLen || 0;
+  state.segLen = before.length;
+  if (before.length <= from) return;
+  var add = before.slice(from);
+  if (!/[一-龥]{2,}/.test(add)) return;
+  var w2c = segLexicon();
+  segmentText(add, w2c).forEach(function (t) { if (w2c[t]) bumpLocal(t, w2c[t]); });
+  renderLocalStat();
+}
+var segTimer = null;
+function scheduleSegment() { clearTimeout(segTimer); segTimer = setTimeout(segmentAndLearn, 1200); }
+function localCount() { var n = 0; Object.keys(LOCAL_FREQ).forEach(function (c) { n += LOCAL_FREQ[c].length; }); return n; }
+function localHotCount() { var n = 0; Object.keys(LOCAL_FREQ).forEach(function (c) { LOCAL_FREQ[c].forEach(function (e) { if (e.c >= FREQ_HOT) n++; }); }); return n; }
+function enforceLocalCap() {
+  var all = [];
+  Object.keys(LOCAL_FREQ).forEach(function (c) { LOCAL_FREQ[c].forEach(function (e) { all.push([c, e]); }); });
+  while (all.length > LOCAL_CAP) {
+    all.sort(function (a, b) { return (a[1].c - b[1].c) || (a[1].d - b[1].d); });
+    var rm = all.shift(), c = rm[0];
+    LOCAL_FREQ[c] = LOCAL_FREQ[c].filter(function (x) { return x !== rm[1]; });
+    if (!LOCAL_FREQ[c].length) delete LOCAL_FREQ[c];
+  }
+}
+function renderLocalStat() {
+  var elx = $("#localFreqStat");
+  if (elx) elx.textContent = "本地高频词 " + localCount() + "/500 · 今日新增 " + LOCAL_TODAY.n + " · 高频(周≥50) " + localHotCount();
 }
 function delOnce() {
   if (state.buf) { state.buf = state.buf.slice(0, -1); afterBufChange(); renderLetterFaces(); return; }
@@ -817,6 +856,7 @@ function cycleShift() {
 /* 模式切换（排它） */
 function cycleMode() {
   state.mode = state.mode === "smart" ? "wubi" : state.mode === "wubi" ? "en" : "smart";
+  if (!state.isPassword) state.userMode = state.mode;   // 记住用户主动选择的模式（密码框临时英文不覆盖）
   state.buf = ""; state.cands = []; state.ctxCands = [];
   state.shift = "upper";
   updateModeUI(); renderLetterFaces(); renderPunctToggles(); renderCands(); scheduleCtx();
@@ -1172,7 +1212,11 @@ function handleTap(k) {
   if (act) { doAct(act, k); return; }
   if (k.classList.contains("clip-item")) {
     var tx = k.querySelector(".clip-text");
-    if (tx) { commitText(tx.textContent); showPanel("letters"); }
+    if (tx) {
+      var ci = state.clips.indexOf(tx.textContent);          // 点选后流动动态置顶（非永久，点了排最前）
+      if (ci > 0) { state.clips.splice(ci, 1); state.clips.unshift(tx.textContent); saveClips(); }
+      commitText(tx.textContent); showPanel("letters");
+    }
     return;
   }
   if (k.classList.contains("segback")) { showPanel("letters"); return; }
@@ -1407,7 +1451,9 @@ function resetForNewInput() {
   state.buf = ""; state.enPre = ""; state.cands = []; state.ctxCands = [];
   state.calc = ""; state.calcDone = false;
   var secret = state.isPassword || state.numPassword;
-  // 文本密码框不自动大写（默认小写，可 Shift 切换）；普通框默认大写
+  // 文本密码框：强制英文模式、不自动大写（默认小写，可 Shift 切换）；普通框恢复用户模式、默认大写
+  if (state.isPassword) state.mode = "en";
+  else if (!state.numPassword) state.mode = state.userMode;
   state.shift = state.isPassword ? "lower" : "upper";
   document.body.classList.toggle("pw-mode", !!state.isPassword);
   document.body.classList.toggle("numpw-mode", !!state.numPassword);
@@ -1483,7 +1529,10 @@ function bindStatic() {
     setTimeout(refreshDiagView, 800);
   });
   $("#clearUserWords").addEventListener("click", function () {
-    USER_WORDS = {}; localStorage.removeItem("cw_user_words"); toast("自定义词已清空");
+    for (var k in LOCAL_FREQ) delete LOCAL_FREQ[k];
+    localStorage.removeItem("cw_local_freq");
+    LOCAL_TODAY = { d: Math.floor(Date.now() / 86400000), n: 0 }; save("cw_local_today", LOCAL_TODAY);
+    state.segLen = 0; renderLocalStat(); toast("本地高频词已清空");
   });
   $("#clearRecent").addEventListener("click", function () {
     state.recent = []; localStorage.removeItem("cw_recent"); toast("最近用字已清空");
@@ -1540,6 +1589,7 @@ function init() {
   renderEmoji();
   renderPhrase();
   renderClip();
+  renderLocalStat();
   updateModeUI();
   applySettings();
   renderCands();
