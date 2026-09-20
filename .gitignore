@@ -1,0 +1,29 @@
+# Gradle / Android
+.gradle/
+build/
+/app/build/
+captures/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Local configuration (SDK path, machine-specific)
+local.properties
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+.navigation/
+
+# Keystore / signing
+*.jks
+*.keystore
+
+# OS / misc
+.DS_Store
+Thumbs.db
+*.log

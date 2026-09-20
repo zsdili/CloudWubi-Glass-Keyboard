@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.cloudwubi.glasskeyboard'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.cloudwubi.glasskeyboard"
+        minSdk 24
+        targetSdk 33
+        versionCode 11
+        versionName "2.0-lite"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+}
+
+dependencies {
+}

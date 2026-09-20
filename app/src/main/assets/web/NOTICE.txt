@@ -1,0 +1,17 @@
+云五笔·玻璃键盘 lite —— 第三方资源与许可声明
+
+五笔 86 码表数据
+  主要来源：KyleBing/rime-wubi86-jidian（极点五笔字典 wubi86_jidian.dict.yaml，约 8.9 万条）
+  项目地址：https://github.com/KyleBing/rime-wubi86-jidian
+  许可协议：Apache License 2.0（https://www.apache.org/licenses/LICENSE-2.0）
+  基础来源：rime/rime-wubi（wubi86.dict.yaml，version 0.7）
+  项目地址：https://github.com/rime/rime-wubi
+  许可协议：GNU LGPL-3.0（https://www.gnu.org/licenses/lgpl-3.0.html）
+  说明：本应用内置词库由上述开源词库经脚本转换、繁简筛选、分层赋权生成，
+        未修改原始编码与字词对应关系；依各自许可要求保留此声明。
+        转换脚本 gen_wubi_data.js 随源码提供。
+
+其他组件
+  - 前端界面、输入法逻辑、Android 原生壳：本应用原创代码。
+  - 在线翻译：MyMemory Translation API（免费公开接口，需联网）。
+  - 语音识别：Android 系统 SpeechRecognizer（由设备系统提供，本应用不内置语音模型）。
