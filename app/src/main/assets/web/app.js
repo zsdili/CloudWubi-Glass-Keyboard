@@ -1262,7 +1262,7 @@ function applySettings() {
 function collectDiag() {
   var d = {};
   bridge(function (b) { if (b.diagnostics) { try { d = JSON.parse(b.diagnostics()); } catch (e) {} } });
-  d.app = "云五笔·玻璃键盘 lite v2.2";
+  d.app = "云五笔·玻璃键盘 lite v2.3";
   d.mode = state.mode; d.panel = state.panel; d.shift = state.shift;
   d.clips = state.clips.length;
   d.settings = settings;
@@ -1393,7 +1393,7 @@ function bindStatic() {
   });
   $("#diagShare").addEventListener("click", function () {
     var txt = collectDiag();
-    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.2 问题反馈】\n" + txt); });
+    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.3 问题反馈】\n" + txt); });
     if (!isApk()) toast("真机上可调起微信/QQ/邮件分享");
   });
 }
@@ -1423,7 +1423,7 @@ function applyLayout() {
 window.addEventListener("resize", applyLayout);
 
 function init() {
-  L("app init v2.2, bridge=" + isApk());
+  L("app init v2.3, bridge=" + isApk());
   try {
     SOFT_GPU = !!(isApk() && window.AndroidBridge.softGpu && window.AndroidBridge.softGpu());
     if (SOFT_GPU) {
@@ -1444,7 +1444,7 @@ function init() {
   applyLayout();
   setTimeout(applyLayout, 350);   // 大词库解析后窗口稳定，补报高度（治首次 insets=0）
   setTimeout(applyLayout, 1000);
-  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.2 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
+  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.3 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
   if (!isApk()) {
     document.body.classList.add("preview");
     toast("浏览器预览：点击输入框获得焦点后试用");

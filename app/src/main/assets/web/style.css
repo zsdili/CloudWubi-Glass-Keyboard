@@ -7,24 +7,49 @@ body { background: transparent; }
 button { border: none; background: none; font-family: inherit; cursor: pointer; color: inherit; touch-action: manipulation; }
 
 :root {
-  /* 浅色清透基底：半透明白，叠加后方 App 仍保持明亮；顶部亮描边 */
-  --kb-bg: linear-gradient(168deg, rgba(255,255,255,.66), rgba(238,244,255,.54));
-  --kb-border: rgba(255,255,255,.85);
-  /* 果冻白键：顶部更亮、底部淡蓝紫的高透渐变 */
-  --key-bg: linear-gradient(170deg, rgba(255,255,255,.94), rgba(234,241,255,.80));
-  --key-bg2: linear-gradient(170deg, rgba(226,237,255,.88), rgba(210,224,250,.74));
-  /* 功能键：淡蓝紫清透彩色玻璃，白字 */
-  --fn-bg: linear-gradient(160deg, rgba(140,198,248,.82), rgba(168,158,244,.76));
-  --fn-border: rgba(255,255,255,.7);
-  --key-fg: #3b4970;
-  --key-fg-soft: #7785a8;
+  /* v2.3 图一质感：一整块淡蓝→淡紫磨砂玻璃板，按键是不同透明度的玻璃切割，光源恒在左上 */
+  /* 整块键盘底板：左上淡蓝 → 右下淡紫的半透明磨砂渐变 */
+  --kb-bg: linear-gradient(150deg, rgba(201,226,250,.74) 0%, rgba(214,225,250,.68) 44%, rgba(204,206,247,.74) 100%);
+  --kb-border: rgba(255,255,255,.8);
+  /* 主键（字母/数字）：透明磨砂水晶，左上高光、右下透出淡蓝紫 */
+  --key-bg: linear-gradient(143deg,
+    rgba(255,255,255,.62) 0%,
+    rgba(247,250,255,.48) 40%,
+    rgba(229,238,253,.50) 72%,
+    rgba(221,229,252,.57) 100%);
+  --key-bg2: linear-gradient(143deg, rgba(228,239,252,.52) 0%, rgba(208,222,248,.50) 100%);
+  /* 功能键：同色系稍深一档的淡蓝紫玻璃（仍透明），白字细线条 */
+  --fn-bg: linear-gradient(143deg,
+    rgba(182,210,247,.50) 0%,
+    rgba(192,202,246,.46) 52%,
+    rgba(178,186,239,.56) 100%);
+  --fn-border: rgba(224,235,255,.72);
+  /* 回车/确认：再深半档的蓝紫玻璃（保持透明磨砂、光影一致） */
+  --enter-bg: linear-gradient(143deg, rgba(132,184,244,.62) 0%, rgba(150,160,236,.60) 100%);
+  --key-fg: #45506e;
+  --key-fg-soft: #7a88a9;
   --accent: #4a9bf0;
   --accent2: #5cc8f2;
-  --accent-grad: linear-gradient(158deg, #5cc0f2 0%, #5a9bf5 48%, #9a86f5 100%);
-  --line: rgba(150,170,220,.35);
-  --cand-bg: linear-gradient(170deg, rgba(255,255,255,.92), rgba(232,240,255,.76));
-  --shadow-key: 0 3px 10px rgba(70,90,150,.20), inset 0 1.5px 1px rgba(255,255,255,1), inset 0 -3px 7px rgba(120,140,210,.12);
-  --shadow-fn: 0 4px 12px rgba(80,100,170,.28), inset 0 1.5px 1px rgba(255,255,255,.8), inset 0 -3px 7px rgba(90,90,180,.18);
+  --accent-grad: linear-gradient(143deg, #6ab8f4 0%, #6a9cf5 50%, #9a86f5 100%);
+  --line: rgba(130,150,214,.32);
+  /* 候选 / 玻璃底板（非纯白） */
+  --cand-bg: linear-gradient(143deg, rgba(255,255,255,.44), rgba(224,234,252,.38));
+  --glass-bar: linear-gradient(143deg, rgba(255,255,255,.40), rgba(219,231,251,.36));
+  /* 统一玻璃阴影：底部同色悬浮投影 + 左上内高光 + 右下内透淡蓝紫 + 细亮内描边 */
+  --shadow-key:
+    0 3px 8px rgba(96,120,190,.18),
+    inset 1.5px 1.5px 2.5px rgba(255,255,255,.85),
+    inset -1.5px -2px 4px rgba(140,160,240,.22),
+    inset 0 0 0 .5px rgba(255,255,255,.34);
+  --shadow-fn:
+    0 3px 9px rgba(90,110,185,.24),
+    inset 1.5px 1.5px 2.5px rgba(255,255,255,.7),
+    inset -1.5px -2px 4px rgba(120,130,225,.26),
+    inset 0 0 0 .5px rgba(235,242,255,.4);
+  --shadow-enter:
+    0 4px 12px rgba(90,130,220,.34),
+    inset 1.5px 1.5px 2.5px rgba(255,255,255,.6),
+    inset -1.5px -2px 4px rgba(110,120,220,.3);
   --radius-key: 16px;
   --key-gap: 4px;
   --row-gap: 8px;
@@ -81,7 +106,7 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
     radial-gradient(180px 110px at 14% 30%, rgba(150,205,248,.6), transparent 70%),
     radial-gradient(200px 120px at 48% 12%, rgba(200,225,255,.5), transparent 70%),
     radial-gradient(190px 115px at 84% 34%, rgba(178,168,246,.62), transparent 70%);
-  filter: blur(18px); opacity: .8; pointer-events: none; z-index: 0;
+  filter: blur(18px); opacity: .45; pointer-events: none; z-index: 0;
 }
 #kb.theme-dark::before, #kb.theme-neon::before { opacity: .35; filter: blur(20px); }
 #kb.theme-neon::before {
@@ -132,9 +157,10 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 .tfill { flex: 1; }
 .tbtn {
   min-width: 34px; height: 28px; padding: 0 9px; border-radius: 14px; font-size: 13px; font-weight: 700;
-  color: var(--key-fg); background: rgba(255,255,255,.6); border: 1px solid rgba(255,255,255,.7);
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 6px rgba(80,100,160,.16), inset 0 1px 1px rgba(255,255,255,.95);
+  color: var(--key-fg); background: rgba(255,255,255,.46); border: 1px solid rgba(255,255,255,.55);
+  display: flex; align-items: center; justify-content: center; font-weight: 600;
+  box-shadow: 0 2px 6px rgba(96,120,190,.16), inset 1px 1px 1.5px rgba(255,255,255,.8), inset -1px -1px 2px rgba(140,160,240,.16);
+  text-shadow: 0 .5px 0 rgba(255,255,255,.5);
 }
 .tbtn.on { background: var(--accent-grad); color: #fff; border-color: transparent; }
 
@@ -162,9 +188,10 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 .key {
   flex: 1; min-width: 0; border-radius: var(--radius-key);
   background: var(--key-bg); color: var(--key-fg);
-  font-weight: 600; position: relative;
-  border: 1px solid rgba(255,255,255,.75);
+  font-weight: 500; position: relative;
+  border: 1px solid rgba(255,255,255,.55);
   box-shadow: var(--shadow-key);
+  text-shadow: 0 .5px 0 rgba(255,255,255,.55);
   display: flex; align-items: center; justify-content: center;
   /* 不静态 translateZ：软件GPU(SwiftShader)下「渐变背景+独立合成层」首次光栅化会透明；
      按压 scale 由真机硬件GPU自动提升合成层，软件GPU在父层统一光栅化，两边都正常 */
@@ -185,8 +212,8 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 #row3 .key.fn { height: var(--fs); align-self: center; }
 #row4 .key { height: var(--fs); }
 
-.key.fn { flex: 1.4; background: var(--fn-bg); font-size: 17px; color: #fff; box-shadow: var(--shadow-fn); border: 1px solid var(--fn-border); }
-.key.enter { flex: 1.4; background: var(--accent-grad); color: #fff; font-size: 21px; border-color: transparent; box-shadow: 0 5px 16px rgba(90,140,240,.5), inset 0 1.5px 1px rgba(255,255,255,.65); }
+.key.fn { flex: 1.4; background: var(--fn-bg); font-size: 17px; font-weight: 500; color: #fff; box-shadow: var(--shadow-fn); border: 1px solid var(--fn-border); text-shadow: 0 .5px 1px rgba(255,255,255,.5); }
+.key.enter { flex: 1.4; background: var(--enter-bg); color: #fff; font-size: 21px; font-weight: 500; border: 1px solid rgba(220,235,255,.7); box-shadow: var(--shadow-enter); text-shadow: 0 .5px 1px rgba(255,255,255,.5); }
 /* Shift：lower 小写态高亮 */
 .key.shift-lower { background: var(--accent-grad); color: #fff; border-color: transparent; box-shadow: 0 4px 14px rgba(90,140,240,.5); }
 #space { flex: 5; font-size: 15px; font-weight: 700; color: var(--key-fg); }
@@ -206,23 +233,25 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 #calcbar { flex-shrink: 0; display: flex; flex-direction: row; align-items: stretch; margin: 2px 0 7px; gap: 6px; }
 .calc-expr, .calc-res {
   text-align: right; padding: 4px 10px; border-radius: 11px;
-  font-size: 14px; color: var(--key-fg); background: rgba(255,255,255,.62);
-  border: 1px solid rgba(255,255,255,.7); min-height: 32px;
+  font-size: 14px; color: var(--key-fg); background: var(--glass-bar);
+  border: 1px solid rgba(255,255,255,.5); min-height: 32px;
   display: flex; align-items: center; justify-content: flex-end;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,.9);
+  box-shadow: inset 1px 1px 1.5px rgba(255,255,255,.6), inset -1px -1px 2px rgba(140,160,240,.18);
+  text-shadow: 0 .5px 0 rgba(255,255,255,.5);
 }
 .calc-expr { flex: 5; }
 .calc-res { flex: 1; justify-content: center; min-width: 52px; font-size: 19px; font-weight: 800; color: var(--accent); }
 #npGrid { flex: 1; display: grid; grid-template-columns: .9fr repeat(3, 1fr) .9fr; grid-template-rows: 1fr 1fr 1fr var(--fs); gap: 5px; min-height: 0; }
 .np-key {
   border-radius: var(--radius-key); background: var(--key-bg); color: var(--key-fg);
-  font-size: 22px; font-weight: 700; display: flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(255,255,255,.75); box-shadow: var(--shadow-key);
+  font-size: 22px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(255,255,255,.55); box-shadow: var(--shadow-key);
+  text-shadow: 0 .5px 0 rgba(255,255,255,.55);
   transition: transform .09s cubic-bezier(.34,1.56,.64,1), background .12s;
 }
 .np-key.press, .np-key:active { transform: scale(.9); background: var(--key-bg2); box-shadow: inset 0 2px 9px rgba(120,150,220,.26); }
-.np-key.fnr { background: var(--fn-bg); font-size: 18px; color: #fff; box-shadow: var(--shadow-fn); border: 1px solid var(--fn-border); }
-.np-key.enter { background: var(--accent-grad); color: #fff; border-color: transparent; font-size: 23px; box-shadow: 0 5px 16px rgba(90,140,240,.5), inset 0 1.5px 1px rgba(255,255,255,.65); }
+.np-key.fnr { background: var(--fn-bg); font-size: 18px; font-weight: 500; color: #fff; box-shadow: var(--shadow-fn); border: 1px solid var(--fn-border); text-shadow: 0 .5px 1px rgba(255,255,255,.5); }
+.np-key.enter { background: var(--enter-bg); color: #fff; border: 1px solid rgba(220,235,255,.7); font-size: 23px; font-weight: 500; box-shadow: var(--shadow-enter); text-shadow: 0 .5px 1px rgba(255,255,255,.5); }
 .np-opcol { display: flex; flex-direction: column; gap: 4px; border-radius: var(--radius-key); background: var(--fn-bg); border: 1px solid var(--fn-border); box-shadow: var(--shadow-fn); padding: 4px; min-height: 0; }
 .np-opsub { flex: 1; min-height: 0; border-radius: 11px; font-size: 20px; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center; }
 .np-opsub.press, .np-opsub:active { background: rgba(255,255,255,.28); transform: scale(.92); box-shadow: inset 0 2px 8px rgba(255,255,255,.35); }
@@ -244,14 +273,16 @@ body.pw-mode #trBtn, body.pw-mode .tbtn[data-act="phrase"] { display: none; }
 .panel-side { width: var(--fs); flex-shrink: 0; display: flex; flex-direction: column; gap: var(--row-gap); }
 .side-del {
   flex: 1; border-radius: var(--radius-key); background: var(--fn-bg); color: #fff;
-  font-size: 22px; border: 1px solid var(--fn-border); box-shadow: var(--shadow-fn);
+  font-size: 22px; font-weight: 500; border: 1px solid var(--fn-border); box-shadow: var(--shadow-fn);
+  text-shadow: 0 .5px 1px rgba(255,255,255,.5);
   display: flex; align-items: center; justify-content: center;
 }
 .side-del.press, .side-del:active { transform: scale(.92); }
 .confirm {
   height: var(--fs); flex-shrink: 0; border-radius: var(--radius-key);
-  background: var(--accent-grad); color: #fff; font-size: 16px; font-weight: 700;
-  border: 1px solid transparent; box-shadow: 0 5px 16px rgba(90,140,240,.5), inset 0 1.5px 1px rgba(255,255,255,.6);
+  background: var(--enter-bg); color: #fff; font-size: 16px; font-weight: 500;
+  border: 1px solid rgba(220,235,255,.7); box-shadow: var(--shadow-enter);
+  text-shadow: 0 .5px 1px rgba(255,255,255,.5);
   display: flex; align-items: center; justify-content: center;
 }
 .confirm.press, .confirm:active { transform: scale(.92); }
