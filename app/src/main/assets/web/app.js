@@ -58,11 +58,11 @@ function toast(msg) {
 }
 
 /* ---------- 持久化设置 / 状态 ---------- */
-var DEFAULT_SETTINGS = { sug: true, trans: false, sound: true, vib: true, blur: true, theme: "dark" };
+var DEFAULT_SETTINGS = { sug: true, trans: false, sound: true, vib: true, blur: true, theme: "" };
 var settings = load("cw_settings", DEFAULT_SETTINGS);
-if (!localStorage.getItem("cw_theme_migrated_v25")) {   // v2.6：默认主题由浅色改为深色，一次性迁移
-  if (settings.theme === "" || settings.theme === "light") settings.theme = "dark";
-  localStorage.setItem("cw_theme_migrated_v25", "1");
+if (!localStorage.getItem("cw_theme_migrated_v27")) {   // v2.7：回归浅色清透玻璃，一次性把强迁的深色还原
+  settings.theme = "";
+  localStorage.setItem("cw_theme_migrated_v27", "1");
   save("cw_settings", settings);
 }
 var SOFT_GPU = false;   // 宿主软件GPU(SwiftShader/模拟器)：强制关背景模糊，由 Java softGpu() 探测
@@ -102,6 +102,27 @@ function isZh() { return state.mode !== "en"; }
 
 /* ---------- 五笔数据 ---------- */
 var WUBI = window.WUBI_INDEX || {};
+/* 动态造词数据：单字全码 + 全码首码/前两码前缀索引（与词组库无关，满4码按五笔取码规则实时拼词，覆盖漏词/新词） */
+var CHAR_FULL = {};
+(function () {
+  Object.keys(WUBI).forEach(function (code) {
+    if (code.length < 3) return;   // 只看全码（3-4码），跳过1-2级简码
+    (WUBI[code] || []).forEach(function (o) {
+      if (o.t.length !== 1) return;
+      var prev = CHAR_FULL[o.t];
+      if (!prev || code.length > prev.code.length || (code.length === prev.code.length && o.f > prev.f))
+        CHAR_FULL[o.t] = { code: code, f: o.f };
+    });
+  });
+})();
+var P1 = {}, P2 = {};
+Object.keys(CHAR_FULL).forEach(function (ch) {
+  var c = CHAR_FULL[ch].code, f = CHAR_FULL[ch].f;
+  (P1[c[0]] = P1[c[0]] || []).push({ t: ch, f: f });
+  (P2[c.slice(0, 2)] = P2[c.slice(0, 2)] || []).push({ t: ch, f: f });
+});
+Object.keys(P1).forEach(function (k) { P1[k].sort(function (a, b) { return b.f - a.f; }); });
+Object.keys(P2).forEach(function (k) { P2[k].sort(function (a, b) { return b.f - a.f; }); });
 /* ---------- 英文数据 ---------- */
 var EN_RAW = window.EN_WORDS || [];
 var EN_WORDS = Array.isArray(EN_RAW) ? EN_RAW : String(EN_RAW).split(/\s+/).filter(Boolean);
@@ -160,6 +181,35 @@ var SYMBOL_WORDS = [
 ];
 
 /* ---------- 五笔查询 ---------- */
+/* 动态造词（CDD）：满4码按五笔取码规则，用单字全码前缀实时拼出词组，不依赖词组库。
+   二字词=2+2（每字全码前2码）；三字词=1+1+2；四字词=1+1+1+1。单字频率打分，高频组合靠前。 */
+function dynamicWords(code) {
+  if (code.length !== 4 || /[^a-y]/.test(code)) return [];
+  function lf(o) { return Math.log((o.f || 0) + 1); }
+  var two = {}, three = {}, four = {};
+  // 二字词 2+2（每字2码，最精确，优先级最高）
+  var a2 = (P2[code.slice(0, 2)] || []).slice(0, 40);
+  var b2 = (P2[code.slice(2, 4)] || []).slice(0, 40);
+  a2.forEach(function (x) { b2.forEach(function (y) {
+    if (x.t !== y.t) two[x.t + y.t] = lf(x) + lf(y);
+  }); });
+  // 三字词 1+1+2
+  var t1 = (P1[code[0]] || []).slice(0, 20), t2 = (P1[code[1]] || []).slice(0, 20), t3 = (P2[code.slice(2, 4)] || []).slice(0, 20);
+  t1.forEach(function (a) { t2.forEach(function (b) { t3.forEach(function (c) {
+    three[a.t + b.t + c.t] = lf(a) + lf(b) + lf(c);
+  }); }); });
+  // 四字词 1+1+1+1（每字1码，歧义最大，优先级最低）
+  var d4 = [code[0], code[1], code[2], code[3]].map(function (k) { return (P1[k] || []).slice(0, 10); });
+  (function rec(i, word, s) {
+    if (i === 4) { four[word] = s; return; }
+    d4[i].forEach(function (o) { rec(i + 1, word + o.t, s + lf(o)); });
+  })(0, "", 0);
+  function top(obj, n) {
+    return Object.keys(obj).map(function (t) { return { t: t, s: obj[t]}; })
+      .sort(function (a, b) { return b.s - a.s; }).slice(0, n).map(function (o) { return o.t; });
+  }
+  return top(two, 8).concat(top(three, 4), top(four, 3));   // 二字8 + 三字4 + 四字3
+}
 function queryWubi(code) {
   var seen = {}, exact = [], prefix = [];
   function add(o, into) {
@@ -203,8 +253,27 @@ function queryWubi(code) {
   }
   multiSort(exactMulti); multiSort(prefixMulti);
   var list;
-  if (cLen === 4) list = exactMulti.concat(prefixMulti, exactSingle, prefixSingle); // 四码：词组优先
-  else list = exactSingle.concat(prefixSingle, exactMulti, prefixMulti);           // 简码：单字在前
+  if (cLen === 4 && code.indexOf("z") < 0) {
+    // 动态二字词(2+2)：单字频率估计词频，与静态二字词统一排序，高频漏词（如「不要」）可置顶
+    var mergedTwo = exactMulti.filter(function (o) { return o.t.length === 2; });
+    var a2 = (P2[code.slice(0, 2)] || []).slice(0, 40);
+    var b2 = (P2[code.slice(2, 4)] || []).slice(0, 40);
+    a2.forEach(function (x) { b2.forEach(function (y) {
+      if (x.t === y.t) return;
+      var w = x.t + y.t;
+      if (seen[w]) return;
+      var fest = 2 * (x.f / 1e7) * (y.f / 1e7) * 1e7;
+      seen[w] = 1; mergedTwo.push({ t: w, f: fest });
+    }); });
+    mergedTwo.sort(function (a, b) { return b.f - a.f; });
+    // 静态三/四字词 + 动态三/四字兜底
+    var rest = exactMulti.filter(function (o) { return o.t.length !== 2; });
+    var dynRest = [];
+    dynamicWords(code).forEach(function (w) { if (!seen[w]) { seen[w] = 1; dynRest.push({ t: w, f: 0 }); } });
+    list = mergedTwo.concat(rest, prefixMulti, dynRest, exactSingle, prefixSingle);
+  }
+  else if (cLen === 4) list = exactMulti.concat(prefixMulti, exactSingle, prefixSingle); // 含 z 万能键
+  else list = exactSingle.concat(prefixSingle, exactMulti, prefixMulti);   // 简码：单字在前
   // 编码到对应中文词时，符号/表情紧跟该词插入；词不在列表则放首选之后
   SYMBOL_WORDS.forEach(function (sw) {
     var wc = WORD2CODE[sw.w];
@@ -1295,7 +1364,7 @@ function applySettings() {
 function collectDiag() {
   var d = {};
   bridge(function (b) { if (b.diagnostics) { try { d = JSON.parse(b.diagnostics()); } catch (e) {} } });
-  d.app = "云五笔·玻璃键盘 lite v2.6";
+  d.app = "云五笔·玻璃键盘 lite v2.7";
   d.mode = state.mode; d.panel = state.panel; d.shift = state.shift;
   d.clips = state.clips.length;
   d.settings = settings;
@@ -1426,7 +1495,7 @@ function bindStatic() {
   });
   $("#diagShare").addEventListener("click", function () {
     var txt = collectDiag();
-    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.6 问题反馈】\n" + txt); });
+    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.7 问题反馈】\n" + txt); });
     if (!isApk()) toast("真机上可调起微信/QQ/邮件分享");
   });
 }
@@ -1456,7 +1525,7 @@ function applyLayout() {
 window.addEventListener("resize", applyLayout);
 
 function init() {
-  L("app init v2.6, bridge=" + isApk());
+  L("app init v2.7, bridge=" + isApk());
   try {
     SOFT_GPU = !!(isApk() && window.AndroidBridge.softGpu && window.AndroidBridge.softGpu());
     if (SOFT_GPU) {
@@ -1477,7 +1546,7 @@ function init() {
   applyLayout();
   setTimeout(applyLayout, 350);   // 大词库解析后窗口稳定，补报高度（治首次 insets=0）
   setTimeout(applyLayout, 1000);
-  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.6 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
+  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.7 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
   if (!isApk()) {
     document.body.classList.add("preview");
     toast("浏览器预览：点击输入框获得焦点后试用");

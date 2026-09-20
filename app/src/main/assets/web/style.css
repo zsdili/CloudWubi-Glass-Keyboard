@@ -7,49 +7,52 @@ body { background: transparent; }
 button { border: none; background: none; font-family: inherit; cursor: pointer; color: inherit; touch-action: manipulation; }
 
 :root {
-  /* v2.3 图一质感：一整块淡蓝→淡紫磨砂玻璃板，按键是不同透明度的玻璃切割，光源恒在左上 */
-  /* 整块键盘底板：左上淡蓝 → 右下淡紫的半透明磨砂渐变 */
-  --kb-bg: linear-gradient(150deg, rgba(201,226,250,.74) 0%, rgba(214,225,250,.68) 44%, rgba(204,206,247,.74) 100%);
-  --kb-border: rgba(255,255,255,.8);
-  /* 主键（字母/数字）：透明磨砂水晶，左上高光、右下透出淡蓝紫 */
-  --key-bg: linear-gradient(143deg,
-    rgba(255,255,255,.76) 0%,
-    rgba(250,252,255,.60) 40%,
-    rgba(233,241,253,.60) 72%,
-    rgba(226,234,252,.66) 100%);
-  --key-bg2: linear-gradient(143deg, rgba(228,239,252,.52) 0%, rgba(208,222,248,.50) 100%);
-  /* 功能键：同色系稍深一档的淡蓝紫玻璃（仍透明），白字细线条 */
-  --fn-bg: linear-gradient(143deg,
-    rgba(156,196,242,.62) 0%,
-    rgba(172,188,244,.60) 52%,
-    rgba(156,168,234,.72) 100%);
-  --fn-border: rgba(224,235,255,.72);
-  /* 回车/确认：再深半档的蓝紫玻璃（保持透明磨砂、光影一致） */
-  --enter-bg: linear-gradient(143deg, rgba(132,184,244,.62) 0%, rgba(150,160,236,.60) 100%);
-  --key-fg: #45506e;
-  --key-fg-soft: #7a88a9;
+  /* v2.7 水润清透玻璃（参考图：淡青蓝→浅紫灰，通透水晶、边缘亮棱、淡蓝紫柔投影） */
+  --kb-bg: linear-gradient(150deg, rgba(200,224,240,.60) 0%, rgba(206,220,244,.56) 46%, rgba(196,204,236,.62) 100%);
+  --kb-border: rgba(255,255,255,.72);
+  /* 主键：通透水晶——顶部亮白棱边、中部淡蓝通透、底部反光 */
+  --key-bg: linear-gradient(165deg,
+    rgba(255,255,255,.62) 0%,
+    rgba(255,255,255,.34) 26%,
+    rgba(214,230,248,.26) 58%,
+    rgba(198,212,240,.32) 84%,
+    rgba(255,255,255,.34) 100%);
+  --key-bg2: linear-gradient(165deg, rgba(255,255,255,.40), rgba(206,222,244,.30) 70%, rgba(196,208,236,.36));
+  /* 功能键：淡蓝紫稍深、通透玻璃，白色细图标 */
+  --fn-bg: linear-gradient(160deg,
+    rgba(178,206,244,.50) 0%,
+    rgba(176,192,240,.48) 50%,
+    rgba(168,178,232,.58) 100%);
+  --fn-border: rgba(235,244,255,.6);
+  /* 回车/确认：淡蓝紫稍深的清透玻璃 */
+  --enter-bg: linear-gradient(158deg,
+    rgba(150,196,246,.56) 0%,
+    rgba(150,168,232,.54) 100%);
+  --key-fg: #4a5572;
+  --key-fg-soft: #8290ad;
   --accent: #4a9bf0;
-  --accent2: #5cc8f2;
-  --accent-grad: linear-gradient(143deg, #6ab8f4 0%, #6a9cf5 50%, #9a86f5 100%);
-  --line: rgba(130,150,214,.32);
-  /* 候选 / 玻璃底板（非纯白） */
-  --cand-bg: linear-gradient(143deg, rgba(255,255,255,.44), rgba(224,234,252,.38));
-  --glass-bar: linear-gradient(143deg, rgba(255,255,255,.40), rgba(219,231,251,.36));
-  /* 统一玻璃阴影：底部同色悬浮投影 + 左上内高光 + 右下内透淡蓝紫 + 细亮内描边 */
+  --accent2: #6cc0f2;
+  --accent-grad: linear-gradient(150deg, #74bcf6 0%, #6a9cf5 52%, #9a86f5 100%);
+  --line: rgba(130,150,206,.3);
+  /* 候选 / 玻璃底板（通透淡白，非纯白） */
+  --cand-bg: linear-gradient(160deg, rgba(255,255,255,.50), rgba(214,228,248,.40));
+  --glass-bar: linear-gradient(160deg, rgba(255,255,255,.44), rgba(210,224,246,.36));
+  /* 玻璃棱边光影：顶部/左内亮棱、右下内暗（玻璃厚度）、淡蓝紫柔投影、细亮描边 */
   --shadow-key:
-    0 3px 8px rgba(96,120,190,.18),
-    inset 1.5px 1.5px 2.5px rgba(255,255,255,.85),
-    inset -1.5px -2px 4px rgba(140,160,240,.22),
-    inset 0 0 0 .5px rgba(255,255,255,.34);
+    0 4px 12px rgba(120,142,192,.26),
+    inset 1.5px 1.5px 1px rgba(255,255,255,.92),
+    inset -1.5px -1.5px 2px rgba(130,146,196,.26),
+    inset 0 0 0 1px rgba(255,255,255,.46);
   --shadow-fn:
-    0 3px 9px rgba(90,110,185,.24),
-    inset 1.5px 1.5px 2.5px rgba(255,255,255,.7),
-    inset -1.5px -2px 4px rgba(120,130,225,.26),
-    inset 0 0 0 .5px rgba(235,242,255,.4);
+    0 4px 12px rgba(110,132,190,.30),
+    inset 1.5px 1.5px 1px rgba(255,255,255,.78),
+    inset -1.5px -1.5px 2px rgba(116,130,186,.30),
+    inset 0 0 0 1px rgba(255,255,255,.50);
   --shadow-enter:
-    0 4px 12px rgba(90,130,220,.34),
-    inset 1.5px 1.5px 2.5px rgba(255,255,255,.6),
-    inset -1.5px -2px 4px rgba(110,120,220,.3);
+    0 5px 14px rgba(104,132,196,.36),
+    inset 1.5px 1.5px 1px rgba(255,255,255,.70),
+    inset -1.5px -1.5px 2px rgba(104,120,182,.34),
+    inset 0 0 0 1px rgba(255,255,255,.52);
   --radius-key: 16px;
   --key-gap: 4px;
   --row-gap: 8px;
@@ -188,9 +191,9 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 #toolbar > * + * { margin-left: 5px; }
 .tfill { flex: 1; }
 .tbtn {
-  min-width: 34px; height: 28px; padding: 0 9px; border-radius: 14px; font-size: 13px; font-weight: 700;
+  min-width: 34px; height: 28px; padding: 0 9px; border-radius: 14px; font-size: 13px; font-weight: 400;
   color: var(--key-fg); background: rgba(255,255,255,.46); border: 1px solid rgba(255,255,255,.55);
-  display: flex; align-items: center; justify-content: center; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; font-weight: 400;
   box-shadow: 0 2px 6px rgba(96,120,190,.16), inset 1px 1px 1.5px rgba(255,255,255,.8), inset -1px -1px 2px rgba(140,160,240,.16);
   text-shadow: 0 .5px 0 rgba(255,255,255,.5);
 }
@@ -331,6 +334,26 @@ body.pw-mode #trBtn, body.pw-mode .tbtn[data-act="phrase"] { display: none; }
 body.soft-gpu #punctPages, body.soft-gpu #emojiPages { overflow: hidden; }
 body.soft-gpu .page { display: none; }
 body.soft-gpu .page.active { display: grid; }
+/* 软件 GPU：浅色清透玻璃低透明段不光栅化，改不透明近似（保留水润亮棱），真机硬件 GPU 不受影响 */
+body.soft-gpu #kb {
+  --kb-bg: linear-gradient(150deg, rgba(200,224,240,.94) 0%, rgba(206,220,244,.94) 46%, rgba(196,204,236,.95) 100%);
+  --key-bg: linear-gradient(165deg,
+    rgba(255,255,255,.78) 0%,
+    rgba(255,255,255,.66) 26%,
+    rgba(220,234,250,.62) 58%,
+    rgba(206,218,242,.68) 84%,
+    rgba(255,255,255,.68) 100%);
+  --key-bg2: linear-gradient(165deg, rgba(255,255,255,.66), rgba(210,226,246,.6) 70%, rgba(200,212,240,.66));
+  --fn-bg: linear-gradient(160deg,
+    rgba(184,210,246,.72) 0%,
+    rgba(182,196,242,.7) 50%,
+    rgba(172,182,234,.78) 100%);
+  --enter-bg: linear-gradient(158deg,
+    rgba(156,200,248,.76) 0%,
+    rgba(156,172,236,.74) 100%);
+  --cand-bg: linear-gradient(160deg, rgba(255,255,255,.72), rgba(218,230,248,.66));
+  --glass-bar: linear-gradient(160deg, rgba(255,255,255,.66), rgba(214,226,246,.6));
+}
 /* 软件 GPU：深色玻璃低透明段不光栅化，改不透明近似（保留顶部亮白反光带），真机硬件 GPU 不受影响 */
 body.soft-gpu #kb.theme-dark {
   --kb-bg: linear-gradient(165deg, rgba(46,50,64,.92), rgba(24,26,38,.94));

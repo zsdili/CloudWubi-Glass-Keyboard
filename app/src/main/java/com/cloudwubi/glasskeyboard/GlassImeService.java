@@ -611,7 +611,7 @@ public class GlassImeService extends InputMethodService {
         public String diagnostics() {
             try {
                 org.json.JSONObject o = new org.json.JSONObject();
-                o.put("app", "2.6-lite");
+                o.put("app", "2.7-lite");
                 o.put("model", Build.MANUFACTURER + " " + Build.MODEL);
                 o.put("sdk", Build.VERSION.SDK_INT);
                 o.put("rel", Build.VERSION.RELEASE);
