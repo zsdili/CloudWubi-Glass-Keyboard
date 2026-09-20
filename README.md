@@ -48,16 +48,16 @@
 
 ## 界面预览
 
-| 字母主键盘 | 数字 / 计算键盘 |
-| :---: | :---: |
-| ![字母键盘](docs/screenshots/keyboard-letters.png) | ![数字键盘](docs/screenshots/keyboard-number.png) |
+| 字母主键盘 | 数字 / 计算键盘 | 符号键盘 |
+| :---: | :---: | :---: |
+| ![字母键盘](docs/screenshots/keyboard-letters.png) | ![数字键盘](docs/screenshots/keyboard-number.png) | ![符号键盘](docs/screenshots/keyboard-punct.png) |
 
 ---
 
 ## 下载与安装
 
 ### 方式一：安装预编译 APK（推荐真机实测）
-1. 到 [Releases](https://github.com/) 页面下载最新 `CloudWubiGlassKeyboard-lite-vX.X-debug.apk` 并安装。
+1. 到 GitHub [Releases](https://github.com/zsdili/CloudWubi-Glass-Keyboard/releases)（国内可用 [Gitee 镜像](https://gitee.com/zsdili/CloudWubi-Glass-Keyboard/releases)）下载最新 `CloudWubiGlassKeyboard-lite-vX.X-debug.apk` 并安装。
 2. 打开「云五笔」App：
    - 点 **启用云五笔输入法**，在系统设置中勾选「云五笔」；
    - 点 **切换为云五笔**，在弹窗中选择本输入法；
@@ -70,7 +70,7 @@
 需要 **JDK 11** 与 **Android SDK**（Platform android-33、Build-Tools 33.0.2）。
 
 ```bash
-git clone <repo-url> CloudWubi-Glass-Keyboard
+git clone https://github.com/zsdili/CloudWubi-Glass-Keyboard.git CloudWubi-Glass-Keyboard
 cd CloudWubi-Glass-Keyboard
 ./gradlew assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk

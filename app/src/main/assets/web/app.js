@@ -117,6 +117,7 @@ function buildSug() {
   Object.keys(WUBI).forEach(function (code) {
     WUBI[code].forEach(function (o) {
       var w = o.t;
+      if (WORD2CODE[w] === undefined || code.length < WORD2CODE[w].length) WORD2CODE[w] = code;
       if (w.length === 2) {
         var a = w[0], b = w[1];
         (SUG1[a] = SUG1[a] || []).push({ t: b, f: o.f });
@@ -137,6 +138,20 @@ function sugFor(tail) {
   if (one) one.slice().sort(function (a, b) { return b.f - a.f; }).slice(0, 10).forEach(function (o) { add(o.t, o.f * 0.6); });
   return out.sort(function (a, b) { return b.f - a.f; }).slice(0, 8).map(function (o) { return o.t; });
 }
+
+/* ---------- 中文词 → 符号 / 表情（用户固化规则） ----------
+ * 输入该中文词的五笔编码时，候选里同步给出对应符号/表情，点选即上屏 */
+var WORD2CODE = {};
+var SYMBOL_WORDS = [
+  { w: "加", out: "＋" }, { w: "减", out: "－" }, { w: "乘", out: "×" }, { w: "除", out: "÷" },
+  { w: "等于", out: "＝" }, { w: "等号", out: "＝" }, { w: "括号", out: "（）" },
+  { w: "百分之", out: "％" }, { w: "千分之", out: "‰" },
+  { w: "大于", out: "＞" }, { w: "小于", out: "＜" }, { w: "不等于", out: "≠" },
+  { w: "笑", out: "😊" }, { w: "哭", out: "😭" },
+  { w: "爱", out: "❤" }, { w: "心", out: "❤" },
+  { w: "花", out: "🌸" }, { w: "星", out: "⭐" }, { w: "火", out: "🔥" }, { w: "水", out: "💧" },
+  { w: "太阳", out: "☀" }, { w: "月亮", out: "🌙" }, { w: "赞", out: "👍" }
+];
 
 /* ---------- 五笔查询 ---------- */
 function queryWubi(code) {
@@ -184,6 +199,15 @@ function queryWubi(code) {
   var list;
   if (cLen === 4) list = exactMulti.concat(prefixMulti, exactSingle, prefixSingle); // 四码：词组优先
   else list = exactSingle.concat(prefixSingle, exactMulti, prefixMulti);           // 简码：单字在前
+  // 编码到对应中文词时，符号/表情紧跟该词插入；词不在列表则放首选之后
+  SYMBOL_WORDS.forEach(function (sw) {
+    var wc = WORD2CODE[sw.w];
+    if (wc && (code === wc || code.indexOf(wc) === 0) && list.every(function (o) { return o.t !== sw.out; })) {
+      var wi = -1, i;
+      for (i = 0; i < list.length; i++) { if (list[i].t === sw.w) { wi = i; break; } }
+      list.splice(wi >= 0 ? wi + 1 : Math.min(1, list.length), 0, { t: sw.out, f: 0 });
+    }
+  });
   return list.slice(0, 30).map(function (o) { return o.t; });
 }
 
@@ -232,9 +256,9 @@ var NUM_ROW = [
 var COMMON_PUNCT = ["，","。","？","！","、","：","；","“”","‘’","（","）","《","》","…","—","·"];
 /* 字母键上滑标点（键面上标，上滑上屏） */
 var KEY_PUNCT = {
-  q:"《", w:"》", e:"『", r:"』", t:"…", y:"—", u:"［", i:"］", o:"｛", p:"｝",
-  a:"~", s:"@", d:"#", f:"$", g:"%", h:"&", j:"*", k:"(", l:")",
-  z:"'", x:"/", c:"-", v:"_", b:":", n:";", m:"、"
+  q:"《", w:"》", e:"“", r:"”", t:"…", y:"—", u:"【", i:"】", o:"「", p:"」",
+  a:"，", s:"。", d:"？", f:"！", g:"、", h:"：", j:"；", k:"（", l:"）",
+  z:"～", x:"@", c:"#", v:"$", b:"％", n:"&", m:"·"
 };
 function letterKey(c) {
   var k = el("button", "key letter-key");
@@ -271,18 +295,12 @@ function renderLetters() {
   r3.appendChild(key("fn", { "data-act": "del", "aria-label": "退格" }, "⌫"));
   var r4 = $("#row4"); r4.innerHTML = "";
   r4.appendChild(key("fn", { "data-act": "number" }, "123"));
-  var lp = key("fn punct-toggle", { id: "lpunct" }, "");
-  lp.appendChild(el("span", "pt-main")); lp.appendChild(el("span", "pt-alt"));
-  r4.appendChild(lp);
+  r4.appendChild(key("fn", { "data-act": "punct" }, "符"));
   var sp = key("", { id: "space", "data-act": "space" }, "");
   sp.innerHTML = '空格<span class="sp-mic">🎤长按语音</span>';
   r4.appendChild(sp);
-  var rp = key("fn punct-toggle", { id: "rpunct" }, "");
-  rp.appendChild(el("span", "pt-main")); rp.appendChild(el("span", "pt-alt"));
-  r4.appendChild(rp);
   r4.appendChild(key("enter", { "data-act": "enter", "aria-label": "回车" }, "↵"));
   renderLetterFaces();
-  renderPunctToggles();
 }
 
 function isSentStart() {
@@ -358,11 +376,13 @@ function renderNumber() {
   g.appendChild(npK("⌫", "fnr", { "data-act": "del", "aria-label": "退格" }, 1, 5));
   g.appendChild(npK("@", "fnr", { "data-act": "commitAt" }, 2, 5));
   g.appendChild(npK(".", "np-dot", { "data-num": "." }, 3, 5));
-  // 底行：返回 / 空格(点=空格，长按=语音) / 0（在 8 正下方） / 符号 / 回车
+  // 底行：返回 / 空格(点=空格，长按=语音) / 0（在 8 正下方） / ％ / 回车；符号切换走工具栏
   g.appendChild(npK("返回", "fnr", { "data-act": "backLetters" }, 4, 1));
-  g.appendChild(npK("％", "fnr", { "data-calc": "%", "aria-label": "百分号" }, 4, 2));
+  var nsp = npK("", "np-space", { "data-act": "space" }, 4, 2);
+  nsp.innerHTML = '<span class="np-spmic">🎤</span>';
+  g.appendChild(nsp);
   g.appendChild(npK("0", "", { "data-num": "0" }, 4, 3));
-  g.appendChild(npK("符号", "fnr", { "data-act": "goSymbol" }, 4, 4));
+  g.appendChild(npK("％", "fnr", { "data-calc": "%", "aria-label": "百分号" }, 4, 4));
   g.appendChild(npK("↵", "enter", { "data-act": "enter", "aria-label": "回车" }, 4, 5));
   renderCalc();
 }
@@ -404,11 +424,11 @@ function calcEquals() {
 
 /* ---------- 符号面板（分页 + 拖动） ---------- */
 var PUNCT_TABS = [
-  { n: "常用", p: ["，","。","？","！","、","：","；","“","”","‘","’","（","）","《","》","〈","〉","…","—","·","～","￥","％","※","℃","°","№"] },
-  { n: "中文", p: ["「","」","『","』","【","】","〔","〕","〖","〗","［","］","｛","｝","、","。","々","～","…","—","·","﹏","｜","／","＼","＊","＆","＠"] },
-  { n: "数学", p: ["＋","－","×","÷","＝","≠","≈","＜","＞","≤","≥","±","∞","∑","∏","√","∫","∈","∉","⊂","⊃","∩","∪","⊥","∠","π","%","‰","°"] },
-  { n: "特殊", p: ["★","☆","●","○","◆","◇","■","□","▲","△","▼","▽","✓","✔","✕","✖","→","←","↑","↓","↔","⇒","♠","♥","♦","♣","☀","☁","☂","☎"] },
-  { n: "英文", p: ["!",'"',"#","$","%","&","'","(",")","*","+",",","-",".","/",":",";","<","=",">","?","@","[","\\","]","^","_","`","{","|","}","~"] }
+  { n: "常用", p: ["，","。","？","！","、","：","；","“","”","‘","’","（","）","《","》","〈","〉","【","】","…","—","～","·","￥","％","‰","℃","°","※","§","№","々","「","」","『","』","〖","〗","〒","¤"] },
+  { n: "中文", p: ["、","。","々","—","～","「","」","『","』","【","】","〔","〕","〈","〉","《","》","﹃","﹄","﹁","﹂","…","‰","※","〒","〖","〗","〘","〙","〚","〛","㏇","㏍","㎞","㎏","㎡","㏎","㏑","㏒","￠"] },
+  { n: "数学", p: ["＋","－","×","÷","＝","≠","≈","≡","＜","＞","≤","≥","±","∑","∏","√","∝","∞","∫","∮","∵","∴","∈","∉","⊆","⊇","⊂","⊃","∪","∩","∠","⊥","∥","∧","∨","％","‰","π","²","³"] },
+  { n: "特殊", p: ["★","☆","◆","◇","○","●","◎","□","■","△","▲","▽","▼","§","№","※","→","←","↑","↓","↔","↕","♠","♣","♥","♦","☀","☁","☂","☃","☎","✈","⚓","✿","☑","✔","✘","❀","❄","✨"] },
+  { n: "英文", p: [".",",","?","!","(",")",":",";","\"","'","[","]","{","}","-","_","@","#","$","%","^","&","*","+","=","<",">","/","\\","|","~","`","€","£","¥","¢","•","…","—","©"] }
 ];
 function renderPunct() {
   var tabs = $("#punctSeg"), pages = $("#punctPages"), dots = $("#punctDots");
@@ -505,6 +525,13 @@ function pullClip() {
 }
 function renderClip() {
   var box = $("#clipList"); box.innerHTML = "";
+  // 密码框：完全不暴露剪贴板历史（含此前收集内容），防隐私泄露
+  if (state.isPassword || state.numPassword) {
+    var pe = el("div", "clip-empty");
+    pe.textContent = "密码框已保护剪贴板";
+    box.appendChild(pe);
+    return;
+  }
   if (!state.clips.length) {
     var e = el("div", "clip-empty");
     e.innerHTML = "剪贴板为空<br>复制过的文字会自动收集到这里<br>点按上屏 · 长按或点 ✕ 删除";
@@ -694,7 +721,18 @@ function showPanel(n) {
   if (n === "clip") { pullClip(); renderClip(); }
   if (n === "settings") refreshDiagView();
   if (n !== "letters" && n !== "number") { state.buf = ""; state.cands = []; renderCands(); }
+  updateNumSymSwitch(n);
   updateModeUI();
+}
+/* 工具栏「数字|符号」切换：仅在数字/符号面板显示，高亮当前，单一排它 */
+function updateNumSymSwitch(n) {
+  var sw = $("#numSymSwitch");
+  var on = n === "number" || n === "punct";
+  sw.classList.toggle("show", on);
+  $all("button", sw).forEach(function (b) {
+    var a = b.getAttribute("data-act");
+    b.classList.toggle("active", (a === "number" && n === "number") || (a === "punct" && n === "punct"));
+  });
 }
 
 /* 左上角键：字母面板=语言切换（混/中/EN）；子面板=ABC 返回字母键盘 */
@@ -809,7 +847,7 @@ function popupPickAt(x) {
 /* ============================================================
  * 事件架构：click 主触发 + pointer 手势
  * ============================================================ */
-var TAP_SEL = ".key,.tbtn,.cand,.np-key,.np-opsub,.seg-tabs button,.seg-switch button,.seg-clear,.emoji,.set-action,.toggle,.calc-expr,.calc-res,.clip-item,.side-del,.confirm";
+var TAP_SEL = ".key,.tbtn,.cand,.np-key,.np-opsub,.num-sym button,.seg-tabs button,.seg-clear,.emoji,.set-action,.toggle,.calc-expr,.calc-res,.clip-item,.side-del,.confirm";
 var ptr = null;
 var suppressEl = null;
 /* 只抑制「指定元素」那一次 click：上滑/长按后浏览器未必发 click，故按元素而非全局标志 */
@@ -838,7 +876,7 @@ document.addEventListener("pointerdown", function (e) {
   if (!inScroll) e.preventDefault();
   el0.classList.add("press");
   vib();
-  ptr = { el: el0, x: e.clientX, y: e.clientY, kind: longKind(el0), long: false, timer: null, iv: null, cancel: false, cursorMode: false, curX: e.clientX, swipePunct: false, lastDx: 0, lastDy: 0, startTop: !!topZone, pullDone: false };
+  ptr = { el: el0, x: e.clientX, y: e.clientY, kind: longKind(el0), long: false, timer: null, iv: null, cancel: false, cursorMode: false, curX: e.clientX, swipePunct: false, numSwipe: false, lastDx: 0, lastDy: 0, startTop: !!topZone, pullDone: false };
   if (ptr.kind) {
     var delay = ptr.kind === "del" ? 430 : ptr.kind === "clip" ? 460 : ptr.kind === "space" ? 300 : 360;
     ptr.timer = setTimeout(function () { ptr.long = true; onLong(ptr); }, delay);
@@ -866,6 +904,15 @@ function onMove(e) {
       ptr.swipePunct = true; ptr.long = true;
       ptr.el.classList.add("swipe-punct"); ptr.el.classList.remove("press");
       vib(12); L("字母上滑标点 dy=" + dy);
+    }
+  }
+  // 主键盘数字行上滑 → 与点击一致（上屏数字）
+  if (ptr.el.closest("#rowNum [data-num]") && !ptr.swipePunct && !ptr.long) {
+    ptr.lastDx = dx; ptr.lastDy = dy;
+    if (dy < -11 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+      ptr.swipePunct = true; ptr.numSwipe = true; ptr.long = true;
+      ptr.el.classList.add("swipe-punct"); ptr.el.classList.remove("press");
+      vib(12); L("数字行上滑 dy=" + dy);
     }
   }
   // 空格：短按内横拖 → 移光标（取消语音计时）
@@ -899,13 +946,19 @@ function onUp() {
   document.removeEventListener("pointerup", onUp);
   document.removeEventListener("pointercancel", onUp);
   p.el.classList.remove("press");
-  // 上滑标点：move 已标记，或 pointercancel 时用最后位移兜底
+  // 上滑：字母键上标点；数字行上滑=点击（上屏数字）。pointercancel 时用最后位移兜底
+  var isNumUp = p.el.closest("#rowNum [data-num]");
   var wantSwipe = p.swipePunct
-      || (p.el.hasAttribute("data-letters") && p.lastDy < -11 && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * 1.2);
+      || (p.el.hasAttribute("data-letters") && p.lastDy < -11 && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * 1.2)
+      || (isNumUp && p.lastDy < -11 && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * 1.2);
   if (wantSwipe) {
-    var pc = p.el.getAttribute("data-letters"), pch = KEY_PUNCT[pc];
     p.el.classList.remove("swipe-punct");
-    if (pch) commitText(pch);
+    if (p.numSwipe || isNumUp) {
+      pressNumber(p.el.getAttribute("data-num"));
+    } else {
+      var pc = p.el.getAttribute("data-letters"), pch = KEY_PUNCT[pc];
+      if (pch) commitText(pch);
+    }
     p.swipePunct = true; p.long = true;
   }
 
@@ -1169,7 +1222,7 @@ function applySettings() {
 function collectDiag() {
   var d = {};
   bridge(function (b) { if (b.diagnostics) { try { d = JSON.parse(b.diagnostics()); } catch (e) {} } });
-  d.app = "云五笔·玻璃键盘 lite v1.9";
+  d.app = "云五笔·玻璃键盘 lite v2.1";
   d.mode = state.mode; d.panel = state.panel; d.shift = state.shift;
   d.clips = state.clips.length;
   d.settings = settings;
@@ -1257,7 +1310,7 @@ function bindStatic() {
   });
   $("#diagShare").addEventListener("click", function () {
     var txt = collectDiag();
-    bridge(function (b) { b.share("【云五笔·玻璃键盘 v1.9 问题反馈】\n" + txt); });
+    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.1 问题反馈】\n" + txt); });
     if (!isApk()) toast("真机上可调起微信/QQ/邮件分享");
   });
 }

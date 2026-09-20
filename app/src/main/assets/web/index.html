@@ -15,13 +15,17 @@
     <div id="cands"></div>
   </div>
 
-  <!-- 工具栏：表情/剪贴板 各一个入口，不重复 -->
+  <!-- 工具栏：表情/剪贴板 各一个入口，不重复；数字|符号 切换固定在剪贴板右侧 -->
   <div id="toolbar">
     <button class="tbtn" data-act="emoji" type="button" title="表情">☺</button>
-    <button class="tbtn" data-act="clip" type="button" title="剪贴板">📋</button>
+    <button class="tbtn" data-act="clip" type="button" title="剪贴板">贴</button>
+    <div class="num-sym" id="numSymSwitch">
+      <button data-act="number" type="button">数字</button>
+      <button data-act="punct" type="button">符号</button>
+    </div>
     <div class="tfill"></div>
     <button class="tbtn" id="trBtn" data-act="translate" type="button" title="翻译">译</button>
-    <button class="tbtn" data-act="phrase" type="button" title="短语">短语</button>
+    <button class="tbtn" data-act="phrase" type="button" title="常用短语">智</button>
     <button class="tbtn" data-act="settings" type="button" title="设置">⚙</button>
     <button class="tbtn" data-act="switch" type="button" title="切换键盘">⌨</button>
     <button class="tbtn" data-act="hide" type="button" title="收起">∨</button>
@@ -46,13 +50,10 @@
       <div id="npGrid"></div>
     </div>
 
-    <!-- 中英文标点符号键盘 -->
+    <!-- 中英文标点符号键盘：数字/符号切换统一在工具栏 -->
     <div class="panel" id="p-punct">
       <div class="segbar">
-        <div class="seg-switch">
-          <button data-act="number" type="button">数字</button>
-          <button class="active" data-act="punct" type="button">符号</button>
-        </div>
+        <div class="seg-title">符号</div>
       </div>
       <div class="seg-tabs" id="punctSeg"></div>
       <div class="body-row">
@@ -105,7 +106,7 @@
       </div>
       <div class="set-scroll">
         <div class="set-group">主题（单选）</div>
-        <button class="set-action" data-theme="light" type="button">亮域通透（默认）</button>
+        <button class="set-action sel" data-theme="light" type="button">鲜艳果冻（默认）</button>
         <button class="set-action" data-theme="dark" type="button">深空冰蓝</button>
         <button class="set-action" data-theme="neon" type="button">幻紫霓虹</button>
         <div class="set-group">可同时开启（与键盘功能共存）</div>
