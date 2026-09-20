@@ -8,15 +8,19 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
 
 :root {
   /* v2.7 水润清透玻璃（参考图：淡青蓝→浅紫灰，通透水晶、边缘亮棱、淡蓝紫柔投影） */
-  --kb-bg: linear-gradient(150deg, rgba(200,224,240,.60) 0%, rgba(206,220,244,.56) 46%, rgba(196,204,236,.62) 100%);
+  --kb-bg: linear-gradient(155deg,
+    rgba(198,227,245,.87) 0%,
+    rgba(206,225,246,.85) 38%,
+    rgba(206,214,242,.86) 70%,
+    rgba(216,212,243,.87) 100%);
   --kb-border: rgba(255,255,255,.72);
   /* 主键：通透水晶——顶部亮白棱边、中部淡蓝通透、底部反光 */
   --key-bg: linear-gradient(165deg,
-    rgba(255,255,255,.62) 0%,
-    rgba(255,255,255,.34) 26%,
-    rgba(214,230,248,.26) 58%,
-    rgba(198,212,240,.32) 84%,
-    rgba(255,255,255,.34) 100%);
+    rgba(255,255,255,.82) 0%,
+    rgba(255,255,255,.52) 20%,
+    rgba(232,242,252,.36) 48%,
+    rgba(208,226,247,.32) 72%,
+    rgba(214,222,247,.42) 100%);
   --key-bg2: linear-gradient(165deg, rgba(255,255,255,.40), rgba(206,222,244,.30) 70%, rgba(196,208,236,.36));
   /* 功能键：淡蓝紫稍深、通透玻璃，白色细图标 */
   --fn-bg: linear-gradient(160deg,
@@ -39,10 +43,12 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
   --glass-bar: linear-gradient(160deg, rgba(255,255,255,.44), rgba(210,224,246,.36));
   /* 玻璃棱边光影：顶部/左内亮棱、右下内暗（玻璃厚度）、淡蓝紫柔投影、细亮描边 */
   --shadow-key:
-    0 4px 12px rgba(120,142,192,.26),
-    inset 1.5px 1.5px 1px rgba(255,255,255,.92),
-    inset -1.5px -1.5px 2px rgba(130,146,196,.26),
-    inset 0 0 0 1px rgba(255,255,255,.46);
+    0 9px 20px rgba(96,120,182,.4),
+    0 2px 5px rgba(96,120,182,.24),
+    inset 0 2px 2px rgba(255,255,255,1),
+    inset 1.8px 0 2px rgba(255,255,255,.72),
+    inset -1.8px -2.5px 3px rgba(116,138,192,.3),
+    inset 0 0 0 1px rgba(218,234,255,.66);
   --shadow-fn:
     0 4px 12px rgba(110,132,190,.30),
     inset 1.5px 1.5px 1px rgba(255,255,255,.78),
@@ -63,7 +69,7 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
 /* 深色液态玻璃（iOS 控制中心质感，v2.5 默认）：凸起水晶——顶部强镜面反光、边缘亮描边、透出 App、底部投影。
    真机硬件 GPU 走通透（低 alpha + backdrop blur）；软件 GPU 由 body.soft-gpu 块做不透明近似。 */
 #kb.theme-dark {
-  --kb-bg: linear-gradient(165deg, rgba(44,48,62,.46) 0%, rgba(30,32,46,.52) 55%, rgba(22,24,36,.56) 100%);
+  --kb-bg: linear-gradient(165deg, rgba(44,48,62,.76) 0%, rgba(30,32,46,.80) 55%, rgba(22,24,36,.82) 100%);
   --kb-border: rgba(255,255,255,.22);
   --key-bg: linear-gradient(180deg,
     rgba(255,255,255,.42) 0%,
@@ -131,17 +137,18 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
   border-top: 1px solid var(--kb-border);
   box-shadow: 0 -10px 32px rgba(70,90,150,.22), inset 0 1.5px 1px rgba(255,255,255,.9);
   overflow: hidden;
-  backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%);
 }
 #kb.blur-off { backdrop-filter: none; -webkit-backdrop-filter: none; }
 /* 淡蓝紫清透光（静态模糊，只算一次，软件GPU友好） */
 #kb::before {
-  content: ""; position: absolute; left: -10%; right: -10%; top: -80px; height: 190px;
+  content: ""; position: absolute; left: -12%; right: -12%; top: -60px; bottom: 0;
   background:
-    radial-gradient(180px 110px at 14% 30%, rgba(150,205,248,.6), transparent 70%),
-    radial-gradient(200px 120px at 48% 12%, rgba(200,225,255,.5), transparent 70%),
-    radial-gradient(190px 115px at 84% 34%, rgba(178,168,246,.62), transparent 70%);
-  filter: blur(18px); opacity: .45; pointer-events: none; z-index: 0;
+    radial-gradient(280px 200px at 12% 18%, rgba(150,210,248,.7), transparent 70%),
+    radial-gradient(300px 240px at 50% 8%, rgba(205,230,255,.6), transparent 72%),
+    radial-gradient(320px 260px at 88% 40%, rgba(182,172,247,.72), transparent 72%),
+    radial-gradient(360px 300px at 30% 100%, rgba(170,205,246,.5), transparent 75%);
+  filter: blur(22px); opacity: .62; pointer-events: none; z-index: 0;
 }
 #kb.theme-dark::before, #kb.theme-neon::before { opacity: .35; filter: blur(20px); }
 #kb.theme-neon::before {
@@ -224,13 +231,20 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
   flex: 1; min-width: 0; border-radius: var(--radius-key);
   background: var(--key-bg); color: var(--key-fg);
   font-weight: 500; position: relative;
-  border: 1px solid rgba(255,255,255,.55);
+  border: 1px solid rgba(228,241,255,.85);
   box-shadow: var(--shadow-key);
   text-shadow: 0 .5px 0 rgba(255,255,255,.55);
   display: flex; align-items: center; justify-content: center;
   /* 不静态 translateZ：软件GPU(SwiftShader)下「渐变背景+独立合成层」首次光栅化会透明；
      按压 scale 由真机硬件GPU自动提升合成层，软件GPU在父层统一光栅化，两边都正常 */
   transition: transform .09s cubic-bezier(.34,1.56,.64,1), background .12s, box-shadow .12s;
+}
+/* 顶部镜面反光带（玻璃顶面高光） */
+.key::after {
+  content: ""; position: absolute; left: 9%; right: 9%; top: 7%; height: 40%;
+  border-radius: calc(var(--radius-key) - 5px) calc(var(--radius-key) - 5px) 70% 70%;
+  background: linear-gradient(180deg, rgba(255,255,255,.8) 0%, rgba(255,255,255,.22) 52%, transparent 100%);
+  pointer-events: none;
 }
 .key.press, .key:active {
   transform: scale(.9); background: var(--key-bg2);

@@ -1,7 +1,7 @@
 // 生成云端分片词库：完整词库按"编码前2码"分片，输出 cloud/<前缀>.json，App 按需 fetch、缓存。
 const fs = require("fs");
 const win = {}; global.window = win;
-eval(fs.readFileSync("data_wubi.full.v29.js", "utf8"));
+eval(fs.readFileSync("CloudWubiKeyboard/app/src/main/assets/web/data_wubi.js", "utf8"));
 const WUBI = win.WUBI_INDEX;
 
 const OUT = "cloud";

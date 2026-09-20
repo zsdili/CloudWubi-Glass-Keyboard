@@ -394,13 +394,9 @@ function punctToggleKey(id) {
 function renderPunctToggles() {
   var lp = $("#lpunct .pt-main"), la = $("#lpunct .pt-alt");
   var rp = $("#rpunct .pt-main"), ra = $("#rpunct .pt-alt");
-  if (isZh()) {
-    lp.textContent = state.lpZh; la.textContent = state.lpZh === "，" ? "！" : "，";
-    rp.textContent = state.rpZh; ra.textContent = state.rpZh === "。" ? "？" : "。";
-  } else {
-    lp.textContent = state.lpEn; la.textContent = state.lpEn === "," ? "!" : ",";
-    rp.textContent = state.rpEn; ra.textContent = state.rpEn === "." ? "?" : ".";
-  }
+  var Lp = punctPair("l"), Rp = punctPair("r");
+  lp.textContent = Lp[0]; la.textContent = Lp[1];
+  rp.textContent = Rp[0]; ra.textContent = Rp[1];
 }
 
 /* ---------- 数字键盘（左运算符 / 中九宫格123·456·789 / 右功能） ---------- */
@@ -1102,9 +1098,7 @@ function onUp() {
   var ptUp = p.el.closest("#lpunct,#rpunct");
   if (ptUp && (p.swipePunct || (p.lastDy < -11 && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * 1.2))) {
     var which = ptUp.id === "lpunct" ? "l" : "r";
-    var pair = punctPair(which), cur = punctCurrent(which);
-    var nv = cur === pair[0] ? pair[1] : pair[0];
-    setPunct(which, nv); toast("已切换：" + nv);
+    commitText(punctPair(which)[1]);   // 上滑直接上屏备用标点（！/？），不改默认
     ptUp.classList.remove("swipe-punct");
     p.swipePunct = true; p.long = true;
   }
@@ -1129,7 +1123,7 @@ document.addEventListener("click", function (e) {
   var el0 = e.target.closest(TAP_SEL);
   if (el0) handleTap(el0);
   var pt = e.target.closest("#lpunct,#rpunct");
-  if (pt) { var which = pt.id === "lpunct" ? "l" : "r"; commitText(punctCurrent(which)); }
+  if (pt) { var which = pt.id === "lpunct" ? "l" : "r"; commitText(punctPair(which)[0]); }
 });
 
 function onLong(p) {
@@ -1365,7 +1359,7 @@ function applySettings() {
 function collectDiag() {
   var d = {};
   bridge(function (b) { if (b.diagnostics) { try { d = JSON.parse(b.diagnostics()); } catch (e) {} } });
-  d.app = "云五笔·玻璃键盘 lite v2.9";
+  d.app = "云五笔·玻璃键盘 lite v3.0";
   d.mode = state.mode; d.panel = state.panel; d.shift = state.shift;
   d.clips = state.clips.length;
   d.settings = settings;
@@ -1502,7 +1496,7 @@ function bindStatic() {
   });
   $("#diagShare").addEventListener("click", function () {
     var txt = collectDiag();
-    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.9 问题反馈】\n" + txt); });
+    bridge(function (b) { b.share("【云五笔·玻璃键盘 v3.0 问题反馈】\n" + txt); });
     if (!isApk()) toast("真机上可调起微信/QQ/邮件分享");
   });
 }
@@ -1532,7 +1526,7 @@ function applyLayout() {
 window.addEventListener("resize", applyLayout);
 
 function init() {
-  L("app init v2.9, bridge=" + isApk());
+  L("app init v3.0, bridge=" + isApk());
   try {
     SOFT_GPU = !!(isApk() && window.AndroidBridge.softGpu && window.AndroidBridge.softGpu());
     if (SOFT_GPU) {
@@ -1553,7 +1547,7 @@ function init() {
   applyLayout();
   setTimeout(applyLayout, 350);   // 大词库解析后窗口稳定，补报高度（治首次 insets=0）
   setTimeout(applyLayout, 1000);
-  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.9 · 单字/简码=五笔86；词组=多源融合白名单(jieba+成语+歇后语+口语, 过红线, 对照审计)";
+  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v3.0 · 端侧仅简码+常用单字(约80KB)；词组与其余单字云端按需加载，离线降级";
   if (!isApk()) {
     document.body.classList.add("preview");
     toast("浏览器预览：点击输入框获得焦点后试用");
