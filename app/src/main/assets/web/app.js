@@ -58,8 +58,10 @@ function toast(msg) {
 }
 
 /* ---------- 持久化设置 / 状态 ---------- */
-var DEFAULT_SETTINGS = { sug: true, trans: false, sound: true, vib: true, blur: true, theme: "light" };
+var DEFAULT_SETTINGS = { sug: true, trans: false, sound: true, vib: true, blur: true, theme: "" };
 var settings = load("cw_settings", DEFAULT_SETTINGS);
+if (settings.theme === "light") settings.theme = "";   // 旧「鲜艳果冻」归一为默认清透玻璃
+var SOFT_GPU = false;   // 宿主软件GPU(SwiftShader/模拟器)：强制关背景模糊，由 Java softGpu() 探测
 function load(k, def) {
   try {
     var v = JSON.parse(localStorage.getItem(k));
@@ -295,12 +297,14 @@ function renderLetters() {
   r3.appendChild(key("fn", { "data-act": "del", "aria-label": "退格" }, "⌫"));
   var r4 = $("#row4"); r4.innerHTML = "";
   r4.appendChild(key("fn", { "data-act": "number" }, "123"));
-  r4.appendChild(key("fn", { "data-act": "punct" }, "符"));
+  r4.appendChild(punctToggleKey("lpunct"));
   var sp = key("", { id: "space", "data-act": "space" }, "");
   sp.innerHTML = '空格<span class="sp-mic">🎤长按语音</span>';
   r4.appendChild(sp);
+  r4.appendChild(punctToggleKey("rpunct"));
   r4.appendChild(key("enter", { "data-act": "enter", "aria-label": "回车" }, "↵"));
   renderLetterFaces();
+  renderPunctToggles();
 }
 
 function isSentStart() {
@@ -334,6 +338,13 @@ function renderLetterFaces() {
     sk.className = "key fn shift-" + state.shift;
     sk.setAttribute("data-act", "shift");
   }
+}
+function punctToggleKey(id) {
+  var k = el("button", "key fn punct-toggle");
+  k.setAttribute("type", "button"); k.id = id;
+  var m = el("span", "pt-main"); var a = el("span", "pt-alt");
+  k.appendChild(m); k.appendChild(a);
+  return k;
 }
 function renderPunctToggles() {
   var lp = $("#lpunct .pt-main"), la = $("#lpunct .pt-alt");
@@ -372,17 +383,15 @@ function renderNumber() {
     var i = n - 1, r = Math.floor(i / 3) + 1, c = (i % 3) + 2;
     g.appendChild(npK(String(n), "", { "data-num": String(n) }, r, c));
   }
-  // 右列：退格 / @ / 小数点
+  // 右列：退格 / @ / 空格(单击=上屏默认备选，优先计算纯结果)
   g.appendChild(npK("⌫", "fnr", { "data-act": "del", "aria-label": "退格" }, 1, 5));
   g.appendChild(npK("@", "fnr", { "data-act": "commitAt" }, 2, 5));
-  g.appendChild(npK(".", "np-dot", { "data-num": "." }, 3, 5));
-  // 底行：返回 / 空格(点=空格，长按=语音) / 0（在 8 正下方） / ％ / 回车；符号切换走工具栏
+  g.appendChild(npK("空格", "np-space", { "data-act": "npSpace", "aria-label": "空格" }, 3, 5));
+  // 底行：返回 / ％（0 左）/ 0（在 8 正下方）/ 小数点（0 右）/ 回车；符号切换走工具栏
   g.appendChild(npK("返回", "fnr", { "data-act": "backLetters" }, 4, 1));
-  var nsp = npK("", "np-space", { "data-act": "space" }, 4, 2);
-  nsp.innerHTML = '<span class="np-spmic">🎤</span>';
-  g.appendChild(nsp);
+  g.appendChild(npK("％", "fnr", { "data-calc": "%", "aria-label": "百分号" }, 4, 2));
   g.appendChild(npK("0", "", { "data-num": "0" }, 4, 3));
-  g.appendChild(npK("％", "fnr", { "data-calc": "%", "aria-label": "百分号" }, 4, 4));
+  g.appendChild(npK(".", "np-dot", { "data-num": "." }, 4, 4));
   g.appendChild(npK("↵", "enter", { "data-act": "enter", "aria-label": "回车" }, 4, 5));
   renderCalc();
 }
@@ -433,13 +442,20 @@ var PUNCT_TABS = [
 function renderPunct() {
   var tabs = $("#punctSeg"), pages = $("#punctPages"), dots = $("#punctDots");
   tabs.innerHTML = ""; pages.innerHTML = ""; dots.innerHTML = "";
+  function setPage(idx) {
+    if (SOFT_GPU) {
+      $all(".page", pages).forEach(function (p, i) { p.classList.toggle("active", i === idx); });
+    } else {
+      pages.scrollTo({ left: pages.children[idx].offsetLeft, behavior: "smooth" });
+    }
+    $all("button", tabs).forEach(function (b, i) { b.classList.toggle("on", i === idx); });
+    $all("i", dots).forEach(function (d, i) { d.className = i === idx ? "on" : ""; });
+  }
   PUNCT_TABS.forEach(function (tab, ti) {
     var b = el("button", ti === 0 ? "on" : ""); b.textContent = tab.n; b.setAttribute("type", "button");
-    b.addEventListener("click", function () {
-      pages.scrollTo({ left: pages.children[ti].offsetLeft, behavior: "smooth" });
-    });
+    b.addEventListener("click", function () { setPage(ti); });
     tabs.appendChild(b);
-    var pg = el("div", "page");
+    var pg = el("div", "page" + (SOFT_GPU && ti === 0 ? " active" : ""));
     tab.p.forEach(function (ch) {
       var k = el("button", "key punct"); k.setAttribute("type", "button"); k.textContent = ch;
       k.addEventListener("click", function () { commitText(ch); });
@@ -448,7 +464,7 @@ function renderPunct() {
     pages.appendChild(pg);
     dots.appendChild(el("i", ti === 0 ? "on" : ""));
   });
-  pages.addEventListener("scroll", function () {
+  if (!SOFT_GPU) pages.addEventListener("scroll", function () {
     var idx = Math.round(pages.scrollLeft / pages.clientWidth);
     $all("#punctSeg button").forEach(function (b, i) { b.classList.toggle("on", i === idx); });
     $all("#punctDots i").forEach(function (d, i) { d.className = i === idx ? "on" : ""; });
@@ -466,11 +482,20 @@ var EMOJI_TABS = [
 function renderEmoji() {
   var tabs = $("#emojiTabs"), pages = $("#emojiPages"), dots = $("#emojiDots");
   tabs.innerHTML = ""; pages.innerHTML = ""; dots.innerHTML = "";
+  function setPage(idx) {
+    if (SOFT_GPU) {
+      $all(".page", pages).forEach(function (p, i) { p.classList.toggle("active", i === idx); });
+    } else {
+      pages.scrollTo({ left: pages.children[idx].offsetLeft, behavior: "smooth" });
+    }
+    $all("button", tabs).forEach(function (b, i) { b.classList.toggle("on", i === idx); });
+    $all("i", dots).forEach(function (d, i) { d.className = i === idx ? "on" : ""; });
+  }
   EMOJI_TABS.forEach(function (tab, ti) {
     var b = el("button", ti === 0 ? "on" : ""); b.textContent = tab.n; b.setAttribute("type", "button");
-    b.addEventListener("click", function () { pages.scrollTo({ left: pages.children[ti].offsetLeft, behavior: "smooth" }); });
+    b.addEventListener("click", function () { setPage(ti); });
     tabs.appendChild(b);
-    var pg = el("div", "page");
+    var pg = el("div", "page" + (SOFT_GPU && ti === 0 ? " active" : ""));
     tab.p.forEach(function (ch) {
       var k = el("button", "emoji"); k.setAttribute("type", "button"); k.textContent = ch;
       k.addEventListener("click", function () { commitText(ch); });
@@ -479,7 +504,7 @@ function renderEmoji() {
     pages.appendChild(pg);
     dots.appendChild(el("i", ti === 0 ? "on" : ""));
   });
-  pages.addEventListener("scroll", function () {
+  if (!SOFT_GPU) pages.addEventListener("scroll", function () {
     var idx = Math.round(pages.scrollLeft / pages.clientWidth);
     $all("#emojiTabs button").forEach(function (b, i) { b.classList.toggle("on", i === idx); });
     $all("#emojiDots i").forEach(function (d, i) { d.className = i === idx ? "on" : ""; });
@@ -673,6 +698,14 @@ function actEnter() {
   if (state.buf) { commitCode(); return; }
   sendEnter();
 }
+/* 数字盘空格：单击上屏默认备选（计算纯结果优先，等同点结果钮）；无算式则上屏空格 */
+function actNpSpace() {
+  var v = state.calcDone ? state.calc : calcValue(state.calc);
+  if (state.calc && v != null && !isNaN(v)) {
+    commitText(String(v));
+    state.calc = String(v); state.calcDone = true; renderCalc();
+  } else commitText(" ");
+}
 
 /* 标点切换键 */
 function punctPair(which) {
@@ -719,16 +752,22 @@ function showPanel(n) {
   state.panel = n;
   $all("#panels > .panel").forEach(function (p) { p.classList.toggle("active", p.id === "p-" + n); });
   if (n === "clip") { pullClip(); renderClip(); }
-  if (n === "settings") refreshDiagView();
+  if (n === "settings") { refreshDiagView(); renderEngineList(); }
   if (n !== "letters" && n !== "number") { state.buf = ""; state.cands = []; renderCands(); }
   updateNumSymSwitch(n);
   updateModeUI();
+  if (SOFT_GPU) {
+    // SwiftShader 下新切换面板首次光栅化会透明：强制 panels 重绘（真机硬件GPU不触发）
+    var pp0 = $("#panels");
+    pp0.style.transition = "none";
+    pp0.style.opacity = "0.99";
+    void pp0.offsetHeight;
+    pp0.style.opacity = "";
+  }
 }
 /* 工具栏「数字|符号」切换：仅在数字/符号面板显示，高亮当前，单一排它 */
 function updateNumSymSwitch(n) {
   var sw = $("#numSymSwitch");
-  var on = n === "number" || n === "punct";
-  sw.classList.toggle("show", on);
   $all("button", sw).forEach(function (b) {
     var a = b.getAttribute("data-act");
     b.classList.toggle("active", (a === "number" && n === "number") || (a === "punct" && n === "punct"));
@@ -1069,6 +1108,7 @@ function doAct(act, k) {
   switch (act) {
     case "del": delOnce(); break;
     case "space": actSpace(); break;
+    case "npSpace": actNpSpace(); break;
     case "enter": actEnter(); break;
     case "shift": cycleShift(); break;
     case "ctxKey": if (isZh()) commitText("、"); else cycleShift(); break;
@@ -1210,7 +1250,7 @@ function applySettings() {
   var kb = $("#kb");
   kb.classList.toggle("theme-dark", settings.theme === "dark");
   kb.classList.toggle("theme-neon", settings.theme === "neon");
-  kb.classList.toggle("blur-off", !settings.blur);
+  kb.classList.toggle("blur-off", !settings.blur || SOFT_GPU);
   $all(".toggle").forEach(function (t) {
     t.classList.toggle("on", !!settings[t.getAttribute("data-set")]);
   });
@@ -1222,7 +1262,7 @@ function applySettings() {
 function collectDiag() {
   var d = {};
   bridge(function (b) { if (b.diagnostics) { try { d = JSON.parse(b.diagnostics()); } catch (e) {} } });
-  d.app = "云五笔·玻璃键盘 lite v2.1";
+  d.app = "云五笔·玻璃键盘 lite v2.2";
   d.mode = state.mode; d.panel = state.panel; d.shift = state.shift;
   d.clips = state.clips.length;
   d.settings = settings;
@@ -1231,6 +1271,36 @@ function collectDiag() {
   return JSON.stringify(d, null, 2);
 }
 function refreshDiagView() { $("#diagView").textContent = collectDiag(); }
+
+/* 语音引擎手动选择（识别不出结果时绕过自动打分）；列表来自 Java engineList() */
+function renderEngineList() {
+  var box = $("#engineList");
+  if (!box) return;
+  box.innerHTML = "";
+  var list = [], manual = "";
+  bridge(function (b) {
+    if (b.engineList) { try { list = JSON.parse(b.engineList()); } catch (e) {} }
+    if (b.getEngine) { try { manual = b.getEngine() || ""; } catch (e) {} }
+  });
+  function engBtn(label, val, sel) {
+    var b = el("button", "set-action" + (sel ? " sel" : ""));
+    b.setAttribute("type", "button"); b.textContent = label;
+    b.addEventListener("click", function () {
+      playClick();
+      bridge(function (bb) { bb.setEngine(val); });
+      toast(val ? "已指定语音引擎，长按空格重试" : "已改为自动选择引擎");
+      setTimeout(renderEngineList, 200);
+    });
+    box.appendChild(b);
+  }
+  engBtn("自动（国内引擎优先）", "", !manual);
+  list.forEach(function (e) { engBtn(e.l, e.c, !!manual && manual === e.c); });
+  if (!list.length) {
+    var tip = el("div", "set-group");
+    tip.textContent = "未枚举到系统语音引擎：可开启 vivo Jovi，或安装讯飞语记/百度等语音引擎";
+    box.appendChild(tip);
+  }
+}
 
 /* ============================================================
  * Java → JS 回调
@@ -1284,7 +1354,20 @@ window.KB = {
     if (voice.cancel) { voice.cancel = false; return; }
     if (t) commitText(t);
   },
-  voiceError: function (code, msg) { voiceError(code, msg); }
+  voiceError: function (code, msg) { voiceError(code, msg); },
+  /* 当前引擎失败、Java 已自动切到下一个：重置聆听态，提示重说 */
+  voiceRetry: function (n, m) {
+    L("voiceRetry " + n + "/" + m);
+    voice.heard = false;
+    voice.active = true;
+    voice.cancel = false;
+    $("#voPerm").style.display = "none";
+    $("#voPartial").textContent = "";
+    $("#voStatus").textContent = "已切换引擎(" + n + "/" + m + ")，请重说";
+    renderWave(6);
+    clearVoiceTimers();
+    armVoiceTimers();
+  }
 };
 
 /* ============================================================
@@ -1310,7 +1393,7 @@ function bindStatic() {
   });
   $("#diagShare").addEventListener("click", function () {
     var txt = collectDiag();
-    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.1 问题反馈】\n" + txt); });
+    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.2 问题反馈】\n" + txt); });
     if (!isApk()) toast("真机上可调起微信/QQ/邮件分享");
   });
 }
@@ -1321,9 +1404,9 @@ function applyLayout() {
   var hgap = 4;   // 水平键间隙
   var vgap = 8;   // 垂直行间隙（在原基础上加大一倍）
   var kw = (W - 12 - 9 * hgap) / 10;   // 面板左右padding 6+6，10键9间隙
-  var kh = Math.round(kw * 4 / 3);    // 字母键高（宽:高=3:4）
+  var kh = Math.round(kw * 16 / 9);    // 字母键高：宽:高=3:4 基础上再高 1/3
   var fs = Math.round(kw * 1.5);      // 功能键方形（flex1.5 → 宽=1.5kw）
-  var panelsH = 9 + kh * 3 + fs * 2 + vgap * 4;
+  var panelsH = 9 + kh * 4 + fs + vgap * 4;  // 字母盘 4行kh(rowNum,1,2,3) + 底排fs
   var root = document.documentElement;
   root.style.setProperty("--kh-letter", kh + "px");
   root.style.setProperty("--fs", fs + "px");
@@ -1333,14 +1416,21 @@ function applyLayout() {
   root.style.setProperty("--kw", Math.round(kw) + "px");
   root.style.setProperty("--row-indent", Math.round((kw + hgap) / 2) + "px");
   root.style.setProperty("--safe-b", "8px");
-  var total = 42 + 30 + panelsH + 8;  // candbar42 + toolbar30 + panels + 底部安全区
+  var total = 42 + 32 + panelsH + 8;  // candbar42 + toolbar32 + panels + 底部安全区
   bridge(function (b) { if (b.updateHeight) b.updateHeight(total); });
   L("layout W=" + W + " kw=" + kw.toFixed(1) + " kh=" + kh + " fs=" + fs + " total=" + total);
 }
 window.addEventListener("resize", applyLayout);
 
 function init() {
-  L("app init v2.1, bridge=" + isApk());
+  L("app init v2.2, bridge=" + isApk());
+  try {
+    SOFT_GPU = !!(isApk() && window.AndroidBridge.softGpu && window.AndroidBridge.softGpu());
+    if (SOFT_GPU) {
+      document.body.classList.add("soft-gpu");
+      L("检测到软件GPU：关背景模糊 + 分页改页切换（真机硬件GPU保持玻璃模糊与手拖动）");
+    }
+  } catch (e) {}
   renderLetters();
   renderNumber();
   renderPunct();
@@ -1354,7 +1444,7 @@ function init() {
   applyLayout();
   setTimeout(applyLayout, 350);   // 大词库解析后窗口稳定，补报高度（治首次 insets=0）
   setTimeout(applyLayout, 1000);
-  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.1 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
+  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.2 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
   if (!isApk()) {
     document.body.classList.add("preview");
     toast("浏览器预览：点击输入框获得焦点后试用");
