@@ -102,27 +102,15 @@ function isZh() { return state.mode !== "en"; }
 
 /* ---------- 五笔数据 ---------- */
 var WUBI = window.WUBI_INDEX || {};
-/* 动态造词数据：单字全码 + 全码首码/前两码前缀索引（与词组库无关，满4码按五笔取码规则实时拼词，覆盖漏词/新词） */
-var CHAR_FULL = {};
-(function () {
-  Object.keys(WUBI).forEach(function (code) {
-    if (code.length < 3) return;   // 只看全码（3-4码），跳过1-2级简码
-    (WUBI[code] || []).forEach(function (o) {
-      if (o.t.length !== 1) return;
-      var prev = CHAR_FULL[o.t];
-      if (!prev || code.length > prev.code.length || (code.length === prev.code.length && o.f > prev.f))
-        CHAR_FULL[o.t] = { code: code, f: o.f };
-    });
+/* 用户词学习：单字全码表（给用户上屏的多字词生成五笔编码）+ 用户私有白名单（精确匹配、不连锁、上限、可清空） */
+var UC = {};
+Object.keys(WUBI).forEach(function (code) {
+  if (code.length < 3) return;
+  (WUBI[code] || []).forEach(function (o) {
+    if (o.t.length === 1 && (!UC[o.t] || code.length > UC[o.t].length)) UC[o.t] = code;
   });
-})();
-var P1 = {}, P2 = {};
-Object.keys(CHAR_FULL).forEach(function (ch) {
-  var c = CHAR_FULL[ch].code, f = CHAR_FULL[ch].f;
-  (P1[c[0]] = P1[c[0]] || []).push({ t: ch, f: f });
-  (P2[c.slice(0, 2)] = P2[c.slice(0, 2)] || []).push({ t: ch, f: f });
 });
-Object.keys(P1).forEach(function (k) { P1[k].sort(function (a, b) { return b.f - a.f; }); });
-Object.keys(P2).forEach(function (k) { P2[k].sort(function (a, b) { return b.f - a.f; }); });
+var USER_WORDS = load("cw_user_words", {});
 /* ---------- 英文数据 ---------- */
 var EN_RAW = window.EN_WORDS || [];
 var EN_WORDS = Array.isArray(EN_RAW) ? EN_RAW : String(EN_RAW).split(/\s+/).filter(Boolean);
@@ -181,35 +169,6 @@ var SYMBOL_WORDS = [
 ];
 
 /* ---------- 五笔查询 ---------- */
-/* 动态造词（CDD）：满4码按五笔取码规则，用单字全码前缀实时拼出词组，不依赖词组库。
-   二字词=2+2（每字全码前2码）；三字词=1+1+2；四字词=1+1+1+1。单字频率打分，高频组合靠前。 */
-function dynamicWords(code) {
-  if (code.length !== 4 || /[^a-y]/.test(code)) return [];
-  function lf(o) { return Math.log((o.f || 0) + 1); }
-  var two = {}, three = {}, four = {};
-  // 二字词 2+2（每字2码，最精确，优先级最高）
-  var a2 = (P2[code.slice(0, 2)] || []).slice(0, 40);
-  var b2 = (P2[code.slice(2, 4)] || []).slice(0, 40);
-  a2.forEach(function (x) { b2.forEach(function (y) {
-    if (x.t !== y.t) two[x.t + y.t] = lf(x) + lf(y);
-  }); });
-  // 三字词 1+1+2
-  var t1 = (P1[code[0]] || []).slice(0, 20), t2 = (P1[code[1]] || []).slice(0, 20), t3 = (P2[code.slice(2, 4)] || []).slice(0, 20);
-  t1.forEach(function (a) { t2.forEach(function (b) { t3.forEach(function (c) {
-    three[a.t + b.t + c.t] = lf(a) + lf(b) + lf(c);
-  }); }); });
-  // 四字词 1+1+1+1（每字1码，歧义最大，优先级最低）
-  var d4 = [code[0], code[1], code[2], code[3]].map(function (k) { return (P1[k] || []).slice(0, 10); });
-  (function rec(i, word, s) {
-    if (i === 4) { four[word] = s; return; }
-    d4[i].forEach(function (o) { rec(i + 1, word + o.t, s + lf(o)); });
-  })(0, "", 0);
-  function top(obj, n) {
-    return Object.keys(obj).map(function (t) { return { t: t, s: obj[t]}; })
-      .sort(function (a, b) { return b.s - a.s; }).slice(0, n).map(function (o) { return o.t; });
-  }
-  return top(two, 8).concat(top(three, 4), top(four, 3));   // 二字8 + 三字4 + 四字3
-}
 function queryWubi(code) {
   var seen = {}, exact = [], prefix = [];
   function add(o, into) {
@@ -221,6 +180,7 @@ function queryWubi(code) {
     Object.keys(WUBI).forEach(function (k) { if (re.test(k)) (WUBI[k] || []).forEach(function (o) { add(o, prefix); }); });
   } else {
     (WUBI[code] || []).forEach(function (o) { add(o, exact); });   // 精确编码（简码锚字/本码词组）
+    (USER_WORDS[code] || []).forEach(function (w) { add({ t: w, f: 8e6 }, exact); });  // 用户私有词精确命中、高权重（recent 仍置顶）
     if (cLen < 4) Object.keys(WUBI).forEach(function (k) {          // 前缀补全
       if (k !== code && k.indexOf(code) === 0) (WUBI[k] || []).forEach(function (o) { add(o, prefix); });
     });
@@ -253,26 +213,7 @@ function queryWubi(code) {
   }
   multiSort(exactMulti); multiSort(prefixMulti);
   var list;
-  if (cLen === 4 && code.indexOf("z") < 0) {
-    // 动态二字词(2+2)：单字频率估计词频，与静态二字词统一排序，高频漏词（如「不要」）可置顶
-    var mergedTwo = exactMulti.filter(function (o) { return o.t.length === 2; });
-    var a2 = (P2[code.slice(0, 2)] || []).slice(0, 40);
-    var b2 = (P2[code.slice(2, 4)] || []).slice(0, 40);
-    a2.forEach(function (x) { b2.forEach(function (y) {
-      if (x.t === y.t) return;
-      var w = x.t + y.t;
-      if (seen[w]) return;
-      var fest = 2 * (x.f / 1e7) * (y.f / 1e7) * 1e7;
-      seen[w] = 1; mergedTwo.push({ t: w, f: fest });
-    }); });
-    mergedTwo.sort(function (a, b) { return b.f - a.f; });
-    // 静态三/四字词 + 动态三/四字兜底
-    var rest = exactMulti.filter(function (o) { return o.t.length !== 2; });
-    var dynRest = [];
-    dynamicWords(code).forEach(function (w) { if (!seen[w]) { seen[w] = 1; dynRest.push({ t: w, f: 0 }); } });
-    list = mergedTwo.concat(rest, prefixMulti, dynRest, exactSingle, prefixSingle);
-  }
-  else if (cLen === 4) list = exactMulti.concat(prefixMulti, exactSingle, prefixSingle); // 含 z 万能键
+  if (cLen === 4) list = exactMulti.concat(prefixMulti, exactSingle, prefixSingle); // 四码：规范词组优先
   else list = exactSingle.concat(prefixSingle, exactMulti, prefixMulti);   // 简码：单字在前
   // 编码到对应中文词时，符号/表情紧跟该词插入；词不在列表则放首选之后
   SYMBOL_WORDS.forEach(function (sw) {
@@ -683,10 +624,42 @@ function commitText(t) {
 function rememberRecent(t) {
   if (!/[\u4e00-\u9fa5]/.test(t)) return;
   function put(x) { var ix = state.recent.indexOf(x); if (ix >= 0) state.recent.splice(ix, 1); state.recent.unshift(x); }
-  if (t.length >= 2) put(t);                          // 整词记录 → 同编码再打时置顶（用户词学习）
+  if (t.length >= 2) { put(t); learnUserWord(t); }    // 整词：会话置顶 + 持久化用户词学习
   for (var i = t.length - 1; i >= 0; i--) put(t[i]);  // 单字也记录，逆序使首字靠前
   if (state.recent.length > 200) state.recent.length = 200;
   save("cw_recent", state.recent);
+}
+/* ===== 用户私有白名单（v2.8）：仅学习用户主动上屏、静态词库未收的规范多字词；精确匹配、不连锁 ===== */
+var UW_BLACK = ["法轮","赌博","赌场","六合彩","海洛因","冰毒","大麻","摇头丸","贩毒","吸毒","制毒","毒品",
+  "自杀","自残","轻生","厌世","想死","寻死","绝望","同归于尽","杀人","杀人放火","投毒","放火","爆炸物","枪支","买枪","弹药",
+  "操你","艹你","日你","妈的逼","傻逼","草泥马","王八蛋","婊子","淫娃","卖淫","嫖娼","妓女","情色","色情片",
+"国家","政府","政策","政治","政权","选举","主席","总统","外交","主权","领土","官员","革命","共产党","国民党",
+"宗教","教堂","教会","寺庙","寺院","菩萨","和尚","道士","圣经","古兰经","祈祷","上帝","佛教","道教","伊斯兰","穆斯林",
+"战争","战役","战场","武器","枪支","弹药","导弹","军队","军事","士兵","开战","核武",
+"民族","种族","汉族","藏族","维吾尔","回族","少数民族",
+"民俗","风俗","春节","过年","端午","中秋","清明","庙会","算命","风水","农历","祭祖","春联",
+"中国","中共","中央","人民","人大","书记","两会","公安","政协","常委","国务院","民国","法院","文革","大跃进","抗日",
+"苏维埃","罢工","集会","游行","示威","监狱","警察","武警","国防部","佛祖","喇嘛","基督","圣母","解放军","红军","屠杀",
+"红包","元宵","重阳","西藏","拉萨","自治区","新年"];
+function userPhraseCode(t) {
+  var ch = [...t], fc = function (i) { return UC[ch[i]] || ""; };
+  if (ch.length === 2) return fc(0).slice(0, 2) + fc(1).slice(0, 2);
+  if (ch.length === 3) return fc(0)[0] + fc(1)[0] + fc(2).slice(0, 2);
+  if (ch.length === 4) return fc(0)[0] + fc(1)[0] + fc(2)[0] + fc(3)[0];
+  return fc(0)[0] + fc(1)[0] + fc(2)[0] + fc(ch.length - 1)[0];
+}
+function learnUserWord(t) {
+  if (!/^[\u4e00-\u9fa5]{2,10}$/.test(t)) return;
+  for (var i = 0; i < UW_BLACK.length; i++) if (t.indexOf(UW_BLACK[i]) >= 0) return;
+  var ch = [...t];
+  if (!ch.every(function (c) { return UC[c]; })) return;
+  var code = userPhraseCode(t);
+  if (!/^[a-y]{4}$/.test(code)) return;
+  if ((WUBI[code] || []).some(function (o) { return o.t === t; })) return;   // 静态已收录则不学
+  var arr = USER_WORDS[code] || (USER_WORDS[code] = []);
+  if (arr.indexOf(t) < 0) arr.unshift(t);
+  var n = 0, k; for (k in USER_WORDS) n += USER_WORDS[k].length;   // 上限 1000
+  if (n <= 1000) save("cw_user_words", USER_WORDS);
 }
 function delOnce() {
   if (state.buf) { state.buf = state.buf.slice(0, -1); afterBufChange(); renderLetterFaces(); return; }
@@ -1364,7 +1337,7 @@ function applySettings() {
 function collectDiag() {
   var d = {};
   bridge(function (b) { if (b.diagnostics) { try { d = JSON.parse(b.diagnostics()); } catch (e) {} } });
-  d.app = "云五笔·玻璃键盘 lite v2.7";
+  d.app = "云五笔·玻璃键盘 lite v2.8";
   d.mode = state.mode; d.panel = state.panel; d.shift = state.shift;
   d.clips = state.clips.length;
   d.settings = settings;
@@ -1487,6 +1460,12 @@ function bindStatic() {
     if (!isApk()) toast("请在安卓真机授权麦克风");
     setTimeout(refreshDiagView, 800);
   });
+  $("#clearUserWords").addEventListener("click", function () {
+    USER_WORDS = {}; localStorage.removeItem("cw_user_words"); toast("自定义词已清空");
+  });
+  $("#clearRecent").addEventListener("click", function () {
+    state.recent = []; localStorage.removeItem("cw_recent"); toast("最近用字已清空");
+  });
   $("#diagCopy").addEventListener("click", function () {
     var txt = collectDiag();
     bridge(function (b) { b.copy(txt); });
@@ -1495,7 +1474,7 @@ function bindStatic() {
   });
   $("#diagShare").addEventListener("click", function () {
     var txt = collectDiag();
-    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.7 问题反馈】\n" + txt); });
+    bridge(function (b) { b.share("【云五笔·玻璃键盘 v2.8 问题反馈】\n" + txt); });
     if (!isApk()) toast("真机上可调起微信/QQ/邮件分享");
   });
 }
@@ -1525,7 +1504,7 @@ function applyLayout() {
 window.addEventListener("resize", applyLayout);
 
 function init() {
-  L("app init v2.7, bridge=" + isApk());
+  L("app init v2.8, bridge=" + isApk());
   try {
     SOFT_GPU = !!(isApk() && window.AndroidBridge.softGpu && window.AndroidBridge.softGpu());
     if (SOFT_GPU) {
@@ -1546,7 +1525,7 @@ function init() {
   applyLayout();
   setTimeout(applyLayout, 350);   // 大词库解析后窗口稳定，补报高度（治首次 insets=0）
   setTimeout(applyLayout, 1000);
-  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.7 · 词库源自 极点五笔(Apache-2.0) 与 rime-wubi(LGPL-3.0)";
+  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v2.8 · 单字/简码=五笔86；词组=规范现代汉语白名单(过违禁黑名单)";
   if (!isApk()) {
     document.body.classList.add("preview");
     toast("浏览器预览：点击输入框获得焦点后试用");
