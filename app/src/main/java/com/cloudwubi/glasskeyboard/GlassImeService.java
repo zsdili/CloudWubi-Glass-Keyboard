@@ -479,11 +479,11 @@ public class GlassImeService extends InputMethodService {
                     android.util.Log.d("CloudWubiVib", "设备无振动器");
                     return;
                 }
-                int dur = ms <= 0 ? 18 : Math.min(ms, 60);
+                int dur = ms <= 0 ? 25 : Math.min(ms, 80);
                 android.util.Log.d("CloudWubiVib", "触发振动 dur=" + dur);
                 if (Build.VERSION.SDK_INT >= 26) {
                     // 明确幅度（1-255），避免部分机型 DEFAULT_AMPLITUDE 过弱感知不到
-                    v.vibrate(VibrationEffect.createOneShot(dur, 150));
+                    v.vibrate(VibrationEffect.createOneShot(dur, 200));
                 } else {
                     v.vibrate(dur);
                 }
@@ -611,7 +611,7 @@ public class GlassImeService extends InputMethodService {
         public String diagnostics() {
             try {
                 org.json.JSONObject o = new org.json.JSONObject();
-                o.put("app", "2.3-lite");
+                o.put("app", "2.4-lite");
                 o.put("model", Build.MANUFACTURER + " " + Build.MODEL);
                 o.put("sdk", Build.VERSION.SDK_INT);
                 o.put("rel", Build.VERSION.RELEASE);

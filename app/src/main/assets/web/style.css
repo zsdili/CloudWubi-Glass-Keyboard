@@ -13,16 +13,16 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
   --kb-border: rgba(255,255,255,.8);
   /* 主键（字母/数字）：透明磨砂水晶，左上高光、右下透出淡蓝紫 */
   --key-bg: linear-gradient(143deg,
-    rgba(255,255,255,.62) 0%,
-    rgba(247,250,255,.48) 40%,
-    rgba(229,238,253,.50) 72%,
-    rgba(221,229,252,.57) 100%);
+    rgba(255,255,255,.76) 0%,
+    rgba(250,252,255,.60) 40%,
+    rgba(233,241,253,.60) 72%,
+    rgba(226,234,252,.66) 100%);
   --key-bg2: linear-gradient(143deg, rgba(228,239,252,.52) 0%, rgba(208,222,248,.50) 100%);
   /* 功能键：同色系稍深一档的淡蓝紫玻璃（仍透明），白字细线条 */
   --fn-bg: linear-gradient(143deg,
-    rgba(182,210,247,.50) 0%,
-    rgba(192,202,246,.46) 52%,
-    rgba(178,186,239,.56) 100%);
+    rgba(156,196,242,.62) 0%,
+    rgba(172,188,244,.60) 52%,
+    rgba(156,168,234,.72) 100%);
   --fn-border: rgba(224,235,255,.72);
   /* 回车/确认：再深半档的蓝紫玻璃（保持透明磨砂、光影一致） */
   --enter-bg: linear-gradient(143deg, rgba(132,184,244,.62) 0%, rgba(150,160,236,.60) 100%);
@@ -221,8 +221,8 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 #space.voicing { background: var(--accent-grad); color: #fff; border-color: transparent; }
 /* 底排标点切换键（！， / ？。） */
 .key.punct-toggle { flex: 1.6; flex-direction: column; line-height: 1.05; }
-.key.punct-toggle .pt-main { font-size: 17px; }
-.key.punct-toggle .pt-alt { font-size: 11px; color: var(--key-fg-soft); }
+.key.punct-toggle .pt-main { font-size: 17px; color: #fff; text-shadow: 0 .5px 1px rgba(255,255,255,.5); }
+.key.punct-toggle .pt-alt { font-size: 11px; color: rgba(255,255,255,.62); text-shadow: none; }
 
 /* 分段栏 */
 .segbar { display: flex; align-items: center; height: 32px; flex-shrink: 0; gap: 8px; }

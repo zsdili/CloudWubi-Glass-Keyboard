@@ -10,8 +10,8 @@ android {
         applicationId "com.cloudwubi.glasskeyboard"
         minSdk 24
         targetSdk 33
-        versionCode 14
-        versionName "2.3-lite"
+        versionCode 15
+        versionName "2.4-lite"
     }
 
     compileOptions {
