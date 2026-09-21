@@ -9,10 +9,10 @@ button { border: none; background: none; font-family: inherit; cursor: pointer; 
 :root {
   /* v2.7 水润清透玻璃（参考图：淡青蓝→浅紫灰，通透水晶、边缘亮棱、淡蓝紫柔投影） */
   --kb-bg: linear-gradient(155deg,
-    rgba(198,227,245,.62) 0%,
-    rgba(206,225,246,.60) 38%,
-    rgba(206,214,242,.61) 70%,
-    rgba(216,212,243,.63) 100%);
+    rgba(198,227,245,.86) 0%,
+    rgba(206,225,246,.85) 38%,
+    rgba(206,214,242,.85) 70%,
+    rgba(216,212,243,.86) 100%);
   --kb-border: rgba(255,255,255,.72);
   /* 主键：通透水晶——顶部亮白棱边、中部淡蓝通透、底部反光 */
   --key-bg: linear-gradient(165deg,
