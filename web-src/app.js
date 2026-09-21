@@ -253,14 +253,15 @@ var SYMBOL_WORDS = [
 
 /* ---------- 五笔查询 ---------- */
 /* ===== 云端词库（词组 + 被砍单字按需加载；端侧只留简码+常用字，离线/无网降级为端侧）===== */
-var CLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/cloud/";
-var GITEE_RAW = "https://gitee.com/zsdili/CloudWubi-Glass-Keyboard/raw/main/";
+var CLOUD_REF = "v4.0";   // 云端资源版本（与 git tag 对应；jsDelivr 对新 tag 首次访问即回源最新，无缓存问题）
+var CLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@" + CLOUD_REF + "/cloud/";
+var GITEE_RAW = "https://gitee.com/zsdili/CloudWubi-Glass-Keyboard/raw/" + CLOUD_REF + "/";
 /* 云端 JSON：jsDelivr 主源 → Gitee 备用源，带超时竞速；弱网/国内慢时不长期 pending，最终 null 触发离线降级 */
 /* 云端 JSON：Gitee（国内快）与 jsDelivr 并行竞速，任一先成功即用；整体超时后 null 触发离线降级 */
 function fetchCloudJson(rel, timeoutMs) {
   var urls = [
     GITEE_RAW + rel,                                                            // 国内优先
-    "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/" + rel
+    "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@" + CLOUD_REF + "/" + rel
   ];
   return new Promise(function (resolve) {
     var done = false, fails = 0, overall;
@@ -376,7 +377,7 @@ var PYSYL = {}, PYFULL = {}, PYJIAN = {}, PYDP = {}, PY_META = {};
 })();
 var SYL_SET = {};
 Object.keys(PYSYL).forEach(function (s) { SYL_SET[s] = 1; });
-var PYCLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/cloud_py/";
+var PYCLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@" + CLOUD_REF + "/cloud_py/";
 var pyCloudFull = {}, pyCloudJian = {}, pyPending = {};
 function ensurePyShard(kind, letter) {
   var key = kind + letter;
