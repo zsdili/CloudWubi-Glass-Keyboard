@@ -80,6 +80,7 @@ var state = {
   mode: "smart",        // smart(中英混输/五笔) | wubi(纯五笔) | en(英文)
   userMode: "smart",    // 用户在普通框的模式偏好（密码框临时切英文，退出恢复）
   segLen: 0,            // 文本框划词已处理长度（只统计新增）
+  clipDrop: load("cw_clipdrop", ""),  // 剪贴板最近点选（💧动态置顶标记）
   panel: "letters",
   buf: "",              // 五笔编码缓冲（英文逐字母即时上屏，不用 buf）
   enPre: "",            // 英文当前正在拼写的单词前缀（补全用）
@@ -178,6 +179,7 @@ var SYMBOL_WORDS = [
 /* ---------- 五笔查询 ---------- */
 /* ===== 云端词库（词组 + 被砍单字按需加载；端侧只留简码+常用字，离线/无网降级为端侧）===== */
 var CLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/cloud/";
+var CLOUD_SVG = '<svg viewBox="0 0 24 24" width="11" height="11"><path d="M7 18.2a4 4 0 0 1-.5-7.9 5.6 5.6 0 0 1 10.7-1.1 3.9 3.9 0 0 1-.3 7.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 var cloudIndex = {};        // code -> [{t,f}]
 var shardPending = {};     // prefix -> Promise
 function ensureShard(prefix) {
@@ -198,17 +200,25 @@ function ensureShard(prefix) {
 
 function queryWubi(code) {
   var seen = {}, exact = [], prefix = [];
-  function add(o, into) {
-    if (!seen[o.t] && !/[㐀-䶿]/.test(o.t)) { seen[o.t] = 1; into.push({ t: o.t, f: o.f || 0 }); }
+  function add(o, into, src) {
+    if (/[㐀-䶿]/.test(o.t)) return;
+    var ex = seen[o.t];
+    if (ex) {                                   // 同词多来源：合并更高权重，本地学习升级来源
+      if ((o.f || 0) > ex.f) ex.f = o.f || 0;
+      if (src === "local") ex.src = "local";
+      return;
+    }
+    var no = { t: o.t, f: o.f || 0, src: src || "base" };
+    seen[o.t] = no; into.push(no);
   }
   var cLen = code.length;
   if (code.indexOf("z") >= 0) {
     var re = new RegExp("^" + code.replace(/z/g, ".") + "$");
     Object.keys(WUBI).forEach(function (k) { if (re.test(k)) (WUBI[k] || []).forEach(function (o) { add(o, prefix); }); });
   } else {
-    (WUBI[code] || []).forEach(function (o) { add(o, exact); });   // 端侧精确（简码/常用字）
-    (cloudIndex[code] || []).forEach(function (o) { add(o, exact); }); // 云端精确（词组/被砍单字，已缓存则即时）
-    (LOCAL_FREQ[code] || []).forEach(function (e) { add({ t: e.t, f: 1.05e7 + e.c * 500 }, exact); });  // 本地高频缓存优先（recent 置顶之外，频次越高越靠前）
+    (WUBI[code] || []).forEach(function (o) { add(o, exact, "base"); });   // 端侧精确（简码/常用字）
+    (cloudIndex[code] || []).forEach(function (o) { add(o, exact, "cloud"); }); // 云端精确（词组/被砍单字，已缓存则即时）
+    (LOCAL_FREQ[code] || []).forEach(function (e) { add({ t: e.t, f: 1.05e7 + e.c * 500 }, exact, "local"); });  // 本地高频缓存优先（recent 置顶之外，频次越高越靠前）
     if (cLen < 4) Object.keys(WUBI).forEach(function (k) {          // 前缀补全
       if (k !== code && k.indexOf(code) === 0) (WUBI[k] || []).forEach(function (o) { add(o, prefix); });
     });
@@ -235,7 +245,9 @@ function queryWubi(code) {
     arr.sort(function (a, b) {
       var ra = recentRank(a.t), rb = recentRank(b.t);
       if (ra !== rb) return rb - ra;                                   // 用户词/最近上屏跨长度置顶，新鲜度优先
-      if (a.t.length !== b.t.length) return a.t.length - b.t.length;   // 非常用词：二字→三字→四字
+      var la = a.src === "local" ? 1 : 0, lb = b.src === "local" ? 1 : 0;
+      if (la !== lb) return lb - la;                                  // 本地缓存优先（个人词加速）
+      if (a.t.length !== b.t.length) return a.t.length - b.t.length;   // 通用词：二字→三字→四字
       return b.f - a.f;                                                // 同长度按高频
     });
   }
@@ -249,10 +261,10 @@ function queryWubi(code) {
     if (wc && (code === wc || code.indexOf(wc) === 0) && list.every(function (o) { return o.t !== sw.out; })) {
       var wi = -1, i;
       for (i = 0; i < list.length; i++) { if (list[i].t === sw.w) { wi = i; break; } }
-      list.splice(wi >= 0 ? wi + 1 : Math.min(1, list.length), 0, { t: sw.out, f: 0 });
+      list.splice(wi >= 0 ? wi + 1 : Math.min(1, list.length), 0, { t: sw.out, f: 0, src: "sym" });
     }
   });
-  return list.slice(0, 30).map(function (o) { return o.t; });
+  return list.slice(0, 30).map(function (o) { return { t: o.t, src: o.src }; });
 }
 
 /* ---------- 实时计算 ---------- */
@@ -597,6 +609,8 @@ function pullClip() {
     state.clips.unshift(t);
     if (state.clips.length > 30) state.clips.length = 30;
     saveClips();
+    var nL = learnText(t);   // 剪贴板内容后台划词保存
+    if (nL > 0) toast("此处成功保存划词 " + nL + " 个");
     if (state.panel === "clip") renderClip();
     L("剪贴板更新:" + t.slice(0, 12));
   } catch (e) { L("剪贴板读取失败:" + e.message); }
@@ -618,6 +632,7 @@ function renderClip() {
   }
   state.clips.forEach(function (t, i) {
     var item = el("button", "clip-item"); item.setAttribute("type", "button");
+    if (state.clipDrop === t) { var dp = el("span", "clip-drop"); dp.textContent = "💧"; item.appendChild(dp); }
     var idx = el("span", "clip-idx"); idx.textContent = (i + 1);
     var tx = el("span", "clip-text"); tx.textContent = t;
     var d = el("span", "clip-del"); d.setAttribute("data-clip-del", i); d.textContent = "✕";
@@ -660,6 +675,13 @@ function userPhraseCode(t) {
   if (ch.length === 4) return fc(0)[0] + fc(1)[0] + fc(2)[0] + fc(3)[0];
   return fc(0)[0] + fc(1)[0] + fc(2)[0] + fc(ch.length - 1)[0];
 }
+/* 未登录中文片段：每个字都有端侧全码才按五笔词组规则合成编码（用户真实输入、非系统造词），否则不学习 */
+function tryUserCode(t) {
+  if (!t || t.length < 2 || t.length > 8) return null;
+  var ch = [...t];
+  for (var i = 0; i < ch.length; i++) if (!UC[ch[i]]) return null;
+  return userPhraseCode(t);
+}
 /* ===== 本地高频词：以"文本框真实文本"划词统计（非候选栏）；用户自有设备、无过滤、不分发 ===== */
 function segLexicon() {
   var w2c = {};
@@ -670,23 +692,51 @@ function segLexicon() {
   Object.keys(LOCAL_FREQ).forEach(function (code) { LOCAL_FREQ[code].forEach(function (e) { if (!w2c[e.t]) w2c[e.t] = code; }); });
   return w2c;
 }
-function segmentText(text, w2c) {
-  var s = text.replace(/[A-Za-z0-9]+/g, " "), out = [], i = s.length;
+function canMakeAll(w) {
+  var ch = [...w];
+  for (var i = 0; i < ch.length; i++) if (!UC[ch[i]]) return false;
+  return true;
+}
+/* 未登录碎片造词：短句(最长8)优先 → 6→5→4→3；只造每字全码齐全的片段；2字不造（2字词已全部在本地词库）*/
+function makeUnknown(frag) {
+  var res = [], i = frag.length;
   while (i > 0) {
-    if (!/[一-龥]/.test(s[i - 1])) { i--; continue; }
     var hit = null;
-    for (var L = Math.min(8, i); L >= 2; L--) { var w = s.slice(i - L, i); if (w2c[w]) { hit = w; break; } }
-    if (hit) { out.push(hit); i -= hit.length; } else i--;
+    for (var L = Math.min(8, i); L >= 3; L--) { var w = frag.slice(i - L, i); if (canMakeAll(w)) { hit = w; break; } }
+    if (hit) { res.push({ t: hit, c: userPhraseCode(hit) }); i -= hit.length; }
+    else i--;
   }
-  return out.reverse();
+  return res.reverse();
+}
+function segmentText(text, w2c) {
+  var s = text.replace(/[A-Za-z0-9]+/g, " "), out = [];
+  s.split(/[^一-龥]+/).filter(function (g) { return g.length >= 2; }).forEach(function (g) {
+    var i = g.length, known = [];
+    while (i > 0) {
+      var hit = null;
+      for (var L = Math.min(8, i); L >= 2; L--) { var w = g.slice(i - L, i); if (w2c[w]) { hit = w; break; } }
+      if (hit) { known.push({ t: hit, c: w2c[hit], p: i - hit.length }); i -= hit.length; }
+      else i--;
+    }
+    known.reverse();
+    var pos = 0;
+    function emitUnknown(a, b) { makeUnknown(g.slice(a, b)).forEach(function (o) { out.push(o); }); }
+    known.forEach(function (k) {
+      if (k.p > pos) emitUnknown(pos, k.p);
+      out.push({ t: k.t, c: k.c }); pos = k.p + k.t.length;
+    });
+    if (pos < g.length) emitUnknown(pos, g.length);
+  });
+  return out;
 }
 function bumpLocal(t, code) {
   var today = Math.floor(Date.now() / 86400000);
   var arr = LOCAL_FREQ[code] || (LOCAL_FREQ[code] = []);
-  var e = arr.filter(function (x) { return x.t === t; })[0];
-  if (!e) { e = { t: t, c: 0, d: today }; arr.push(e); LOCAL_TODAY.n += 1; save("cw_local_today", LOCAL_TODAY); }
+  var e = arr.filter(function (x) { return x.t === t; })[0], isNew = 0;
+  if (!e) { e = { t: t, c: 0, d: today }; arr.push(e); LOCAL_TODAY.n += 1; save("cw_local_today", LOCAL_TODAY); isNew = 1; }
   e.c = (today - e.d >= WEEK_DAYS) ? 1 : e.c + 1; e.d = today;
   enforceLocalCap(); save("cw_local_freq", LOCAL_FREQ);
+  return isNew;
 }
 function segmentAndLearn() {
   if (state.isPassword || state.numPassword) return;
@@ -695,9 +745,10 @@ function segmentAndLearn() {
   if (before.length <= from) return;
   var add = before.slice(from);
   if (!/[一-龥]{2,}/.test(add)) return;
-  var w2c = segLexicon();
-  segmentText(add, w2c).forEach(function (t) { if (w2c[t]) bumpLocal(t, w2c[t]); });
+  var w2c = segLexicon(), newN = 0;
+  segmentText(add, w2c).forEach(function (o) { if (o && o.t && o.c) newN += bumpLocal(o.t, o.c); });
   renderLocalStat();
+  if (newN > 0) toast("已学习新词 " + newN + " 个 · 统计见「设置」");
 }
 var segTimer = null;
 function scheduleSegment() { clearTimeout(segTimer); segTimer = setTimeout(segmentAndLearn, 1200); }
@@ -716,6 +767,16 @@ function enforceLocalCap() {
 function renderLocalStat() {
   var elx = $("#localFreqStat");
   if (elx) elx.textContent = "本地高频词 " + localCount() + "/500 · 今日新增 " + LOCAL_TODAY.n + " · 高频(周≥50) " + localHotCount();
+}
+/* 对一段文本（如剪贴板新记录）后台划词保存，返回保存词条数 */
+function learnText(text) {
+  if (!text || state.isPassword || state.numPassword) return 0;
+  var w2c = segLexicon(), n = 0;
+  segmentText(String(text), w2c).forEach(function (o) {
+    if (o && o.t && o.c) { bumpLocal(o.t, o.c); n++; }
+  });
+  renderLocalStat();
+  return n;
 }
 function delOnce() {
   if (state.buf) { state.buf = state.buf.slice(0, -1); afterBufChange(); renderLetterFaces(); return; }
@@ -788,7 +849,7 @@ function pressNumber(n) {
   // 字母面板数字行：五笔编码中 1-9 快选候选
   if (state.buf && isZh() && /[1-9]/.test(n) && state.cands.length) {
     var i = parseInt(n, 10) - 1;
-    if (state.cands[i]) { pickCand(state.cands[i]); return; }
+    if (state.cands[i]) { var o = state.cands[i]; pickCand(typeof o === "string" ? o : o.t); return; }
   }
   commitText(n);
 }
@@ -801,7 +862,7 @@ function actSpace() {
   var now = Date.now(), dbl = now - lastSpaceAt < 300;
   if (state.buf) {
     lastSpaceAt = 0;   // 上屏候选/编码，不计双击；空格选词不带空格
-    if (state.cands && state.cands.length) pickCand(state.cands[0]);
+    if (state.cands && state.cands.length) { var f = state.cands[0]; pickCand(typeof f === "string" ? f : f.t); }
     else commitText(state.mode === "en" ? enCase(state.buf) : state.buf);
     return;
   }
@@ -911,8 +972,10 @@ function renderCands() {
   var list = [];
   if (state.buf) {
     var bt = el("span", "buftag"); bt.textContent = state.buf; box.appendChild(bt);
-    list = state.cands.map(function (t, i) {
-      return { t: t, n: i < 9 ? String(i + 1) : "", cls: i === 0 ? "cand sel" : "cand", tr: false };
+    list = state.cands.map(function (x, i) {
+      var o = (typeof x === "string") ? { t: x, src: "" } : x;
+      var sc = o.src === "local" ? " src-local" : o.src === "cloud" ? " src-cloud" : "";
+      return { t: o.t, src: o.src, n: i < 9 ? String(i + 1) : "", cls: (i === 0 ? "cand sel" : "cand") + sc };
     });
   } else {
     list = state.ctxCands || [];
@@ -920,7 +983,8 @@ function renderCands() {
   list.forEach(function (c) {
     var b = el("button", c.cls || "cand"); b.setAttribute("type", "button");
     if (c.n) { var num = el("span", "num"); num.textContent = c.n; b.appendChild(num); }
-    var tx = el("span"); tx.textContent = c.t; b.appendChild(tx);
+    var tx = el("span", "cw"); tx.textContent = c.t; b.appendChild(tx);
+    if (c.src === "cloud") { var ic = el("i", "src-ic"); ic.innerHTML = CLOUD_SVG; b.appendChild(ic); }
     box.appendChild(b);
   });
 }
@@ -1187,7 +1251,7 @@ function onLong(p) {
 /* ---------- click 路由 ---------- */
 function handleTap(k) {
   if (k.classList.contains("cand")) {
-    var span = k.querySelector("span:not(.num)");
+    var span = k.querySelector(".cw");
     var t = span ? span.textContent : k.textContent;
     playClick();
     if (state.mode === "en" && state.enPre && t.toLowerCase().indexOf(state.enPre.toLowerCase()) === 0 && t.length > state.enPre.length) {
@@ -1213,9 +1277,11 @@ function handleTap(k) {
   if (k.classList.contains("clip-item")) {
     var tx = k.querySelector(".clip-text");
     if (tx) {
-      var ci = state.clips.indexOf(tx.textContent);          // 点选后流动动态置顶（非永久，点了排最前）
-      if (ci > 0) { state.clips.splice(ci, 1); state.clips.unshift(tx.textContent); saveClips(); }
-      commitText(tx.textContent); showPanel("letters");
+      var w = tx.textContent, ci = state.clips.indexOf(w);
+      if (ci > 0) { state.clips.splice(ci, 1); state.clips.unshift(w); }
+      state.clipDrop = w; saveClips(); save("cw_clipdrop", w);   // 💧动态置顶标记
+      renderClip();
+      commitText(w); showPanel("letters");
     }
     return;
   }

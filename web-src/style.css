@@ -192,6 +192,21 @@ body.preview #testInput { position: static; opacity: .9; margin: 4px 8px; width:
 .cand.tr { border-color: rgba(90,150,240,.65); color: var(--accent); }
 #kb.theme-dark .cand, #kb.theme-neon .cand { color: var(--key-fg); }
 #kb.theme-dark .cand.tr, #kb.theme-neon .cand.tr { color: #7cc4ff; }
+.cand .cw { line-height: 1; }
+.cand .src-ic { display: inline-flex; align-items: center; margin-left: 4px; }
+.cand .src-ic svg { display: block; }
+.cand.src-cloud .src-ic { color: #2f7de0; }                 /* 云端：蓝色小云标 */
+.cand.src-local {                                            /* 本地缓存：浅黄橙玻璃 */
+  background: linear-gradient(160deg, rgba(255,224,158,.62), rgba(255,196,112,.46));
+  border-color: rgba(230,164,64,.55); color: #9a6200;
+}
+.cand.src-local .num, .cand.src-local .cw { color: #9a6200; }
+.cand.sel.src-local {                                        /* 本地词恰为首选：橙色高亮（既选中又标明本地）*/
+  background: linear-gradient(160deg, #ffbe5c, #f49322); border-color: transparent; color: #fff;
+  box-shadow: 0 4px 14px rgba(240,160,50,.5), inset 0 1.5px 1px rgba(255,255,255,.6);
+}
+.cand.sel.src-local .num, .cand.sel.src-local .cw { color: rgba(255,255,255,.92); }
+.cand.sel .src-ic { color: rgba(255,255,255,.92); }
 
 /* 工具栏 */
 #toolbar { display: flex; align-items: center; padding: 0 7px; height: 32px; flex-shrink: 0; }
@@ -407,6 +422,7 @@ body.soft-gpu #kb.theme-dark {
 .clip-item .clip-text { flex: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
 .clip-item .clip-del { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(158deg,#f2708a,#ef8ab5); color: #fff; font-size: 15px; }
 .clip-item .clip-idx { flex-shrink: 0; font-size: 10px; opacity: .6; }
+.clip-item .clip-drop { flex-shrink: 0; font-size: 15px; line-height: 1; }
 
 /* 短语 / 设置 */
 .set-scroll { flex: 1; overflow-y: auto; padding: 2px; }
