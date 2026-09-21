@@ -22,6 +22,23 @@ var LOG_BUF = [];
 function L(m) { try { LOG_BUF.push(Date.now() + " " + m); if (LOG_BUF.length > 150) LOG_BUF.shift(); } catch (e) {} }
 window.LOG = L;
 window.addEventListener("error", function (e) { L("JS错误:" + e.message + " @" + (e.filename || "") + ":" + (e.lineno || "")); });
+window.addEventListener("unhandledrejection", function (e) { var r = e.reason; L("未捕获Promise:" + (r && r.message ? r.message : r)); });
+
+/* ---------- 性能环（卡顿/击键耗时） + 操作轨迹环（脱敏：只记动作不记内容，密码框不记录） ---------- */
+var PERF = { longtask: [], keyMs: [], maxKey: 0 };
+try {
+  if (window.PerformanceObserver) {
+    new PerformanceObserver(function (list) {
+      list.getEntries().forEach(function (en) {
+        PERF.longtask.push(Math.round(en.duration));
+        if (PERF.longtask.length > 20) PERF.longtask.shift();
+      });
+    }).observe({ entryTypes: ["longtask"] });
+  }
+} catch (e) {}
+function markKey(ms) { PERF.keyMs.push(ms); if (PERF.keyMs.length > 30) PERF.keyMs.shift(); if (ms > PERF.maxKey) PERF.maxKey = ms; }
+var TRACE = [];
+function TR(act) { if (state && state.isPassword) return; TRACE.push((Date.now() % 100000) + " " + act); if (TRACE.length > 40) TRACE.shift(); }
 
 /* ---------- DOM 工具 ---------- */
 function $(s, r) { return (r || document).querySelector(s); }
@@ -58,7 +75,8 @@ function toast(msg) {
 }
 
 /* ---------- 持久化设置 / 状态 ---------- */
-var DEFAULT_SETTINGS = { sug: true, trans: false, sound: true, vib: true, blur: true, theme: "" };
+var DEFAULT_SETTINGS = { sug: true, trans: false, sound: true, vib: true, blur: true, theme: "",
+  pyDouble: false, dpScheme: "flypy", telemetry: false };
 var settings = load("cw_settings", DEFAULT_SETTINGS);
 if (!localStorage.getItem("cw_theme_migrated_v27")) {   // v2.7：回归浅色清透玻璃，一次性把强迁的深色还原
   settings.theme = "";
@@ -93,6 +111,8 @@ var state = {
   numPassword: false,   // 数字密码框（仅数字）
   numeric: false,       // 普通数字框
   shift: "upper",       // upper（大写，默认）| lower（小写）
+  shiftLock: false,     // 上档键态：true=切到英文大写输出，再按恢复原模式（中文/英文）
+  shiftPrevMode: "smart",
   before: "",           // 光标前文本（句首/联想/翻译用）
   recent: load("cw_recent", []),
   clips: load("cw_clips", []),
@@ -101,10 +121,27 @@ var state = {
   lpEn: (localStorage.getItem("cw_lpEn") || ","),
   rpEn: (localStorage.getItem("cw_rpEn") || ".")
 };
-function isZh() { return state.mode !== "en"; }
+function isZh() { return !state.shiftLock && state.mode !== "en"; }
 
-/* ---------- 五笔数据 ---------- */
-var WUBI = window.WUBI_INDEX || {};
+/* ---------- 五笔数据（25 个本地 JSON 分片，启动同步加载；JSON.parse 运行时构建，兼容旧 WebView） ---------- */
+var WUBI = (function () {
+  var idx = {}, failed = [];
+  "abcdefghijklmnopqrstuvwxy".split("").forEach(function (L) {
+    try {
+      var x = new XMLHttpRequest();
+      x.open("GET", "lite/" + L + ".json", false);   // 同步：本地 file，毫秒级
+      x.send(null);
+      if (x.responseText) {
+        var part = JSON.parse(x.responseText);
+        Object.keys(part).forEach(function (c) { idx[c] = part[c]; });
+      } else failed.push(L);
+    } catch (e) { failed.push(L); }
+  });
+  var nCodes = Object.keys(idx).length, nItems = 0;
+  Object.keys(idx).forEach(function (c) { nItems += idx[c].length; });
+  window.WUBI_META = { codes: nCodes, items: nItems, failed: failed, ua: navigator.userAgent };
+  return idx;
+})();
 /* 用户词学习：单字全码表（给用户上屏的多字词生成五笔编码）+ 用户私有白名单（精确匹配、不连锁、上限、可清空） */
 var UC = {};
 Object.keys(WUBI).forEach(function (code) {
@@ -113,11 +150,46 @@ Object.keys(WUBI).forEach(function (code) {
     if (o.t.length === 1 && (!UC[o.t] || code.length > UC[o.t].length)) UC[o.t] = code;
   });
 });
+/* 前缀索引：构建一次，替代 queryWubi 每次全量遍历；异步执行不阻塞首屏 */
+var PREFIX_INDEX = {}, PREFIX_READY = false;
+function buildPrefixIndex() {
+  var codes = Object.keys(WUBI), idx = 0, t = Date.now();
+  function chunk() {
+    var guard = 0;
+    while (idx < codes.length && guard < 400) {
+      var code = codes[idx++]; guard++;
+      if (code.length < 2) continue;
+      var words = WUBI[code] || [];
+      for (var pl = code.length - 1; pl >= 1; pl--) {
+        var p = code.slice(0, pl), arr = PREFIX_INDEX[p] || (PREFIX_INDEX[p] = []);
+        for (var i = 0; i < words.length && arr.length < 60; i++) arr.push(words[i]);
+      }
+    }
+    if (idx < codes.length) schedule(); else finalize();
+  }
+  function schedule() {
+    if (window.requestIdleCallback) requestIdleCallback(chunk, { timeout: 300 });
+    else setTimeout(chunk, 16);
+  }
+  function finalize() {
+    Object.keys(PREFIX_INDEX).forEach(function (p) {
+      var m = {}, out = [];
+      PREFIX_INDEX[p].sort(function (a, b) { return (b.f || 0) - (a.f || 0); });
+      PREFIX_INDEX[p].forEach(function (o) { if (!m[o.t] && out.length < 12) { m[o.t] = 1; out.push(o); } });
+      PREFIX_INDEX[p] = out;
+    });
+    PREFIX_READY = true;
+    L("前缀索引构建 " + (Date.now() - t) + "ms（空闲分片，不阻塞击键）");
+  }
+  schedule();
+}
+setTimeout(buildPrefixIndex, 60);
 /* ===== 本地高频词（v3.1）：周窗统计 + 500封顶 + 缓存优先；替代旧 USER_WORDS ===== */
 var LOCAL_FREQ = load("cw_local_freq", {});    // {code:[{t:词,c:周内次数,d:最后日天序号}]}
 var LOCAL_DAY = Math.floor(Date.now() / 86400000);
 var LOCAL_TODAY = load("cw_local_today", { d: LOCAL_DAY, n: 0 });   // 今日新增词数
 if (LOCAL_TODAY.d !== LOCAL_DAY) LOCAL_TODAY = { d: LOCAL_DAY, n: 0 };
+var learnMark = load("cw_learnmark", {});   // 新增词标记：在剪贴板中以黄橙色背景标识
 var LOCAL_CAP = 500, FREQ_HOT = 50, WEEK_DAYS = 7;
 /* ---------- 英文数据 ---------- */
 var EN_RAW = window.EN_WORDS || [];
@@ -133,38 +205,41 @@ EN_WORDS.forEach(function (w) {
   }
 });
 
-/* ---------- 联想索引（光标跟随） ---------- */
-var SUG1 = {}, SUG2 = {};
-function buildSug() {
-  var t0 = Date.now();
-  Object.keys(WUBI).forEach(function (code) {
-    WUBI[code].forEach(function (o) {
-      var w = o.t;
-      if (WORD2CODE[w] === undefined || code.length < WORD2CODE[w].length) WORD2CODE[w] = code;
-      if (w.length === 2) {
-        var a = w[0], b = w[1];
-        (SUG1[a] = SUG1[a] || []).push({ t: b, f: o.f });
-        (SUG2[a] = SUG2[a] || {})[b] = (SUG2[a][b] || 0) + o.f;
-      }
-    });
-  });
-  L("联想索引构建 " + (Date.now() - t0) + "ms");
-}
-function sugFor(tail) {
-  if (!settings.sug || !tail) return [];
-  var c1 = tail[tail.length - 1];
-  var m = {}, out = [];
-  function add(w, f) { if (w && !m[w] && tail.indexOf(w) === -1) { m[w] = 1; out.push({ t: w, f: f }); } }
-  var two = SUG2[c1];
-  if (two) Object.keys(two).forEach(function (k) { add(c1 + k, two[k]); });
-  var one = SUG1[c1];
-  if (one) one.slice().sort(function (a, b) { return b.f - a.f; }).slice(0, 10).forEach(function (o) { add(o.t, o.f * 0.6); });
-  return out.sort(function (a, b) { return b.f - a.f; }).slice(0, 8).map(function (o) { return o.t; });
+/* ---------- 语境整句联想（方案3：通读整句做语境判断，给后续整句；不组词、不造词） ---------- */
+var SCENES = window.CONTEXT_SCENES || [];
+function contextSug(before) {
+  if (!settings.sug || !before) return [];
+  var parts = before.split(/[。！？!?\n；;]/);
+  var last = parts[parts.length - 1] || "";
+  var probe = last.length >= 4 ? last : before.slice(-40);
+  var best = null, bs = 0;
+  for (var i = 0; i < SCENES.length; i++) {
+    var sc = SCENES[i], score = 0;
+    for (var j = 0; j < sc.k.length; j++) { var kw = sc.k[j]; if (probe.indexOf(kw) >= 0) score += kw.length >= 2 ? 2 : 1; }
+    if (score > bs) { bs = score; best = sc; }
+  }
+  if (!best) return [];
+  var out = [];
+  for (var k = 0; k < best.s.length && out.length < 3; k++) {
+    var s = best.s[k];
+    if (before.indexOf(s) === -1) out.push(s);
+  }
+  return out;
 }
 
 /* ---------- 中文词 → 符号 / 表情（用户固化规则） ----------
  * 输入该中文词的五笔编码时，候选里同步给出对应符号/表情，点选即上屏 */
-var WORD2CODE = {};
+var SYM_CODE = null;
+var SYM_CODE = {
+  加: "lk", 减: "udg", 乘: "tux", 除: "bw",
+  等于: "tfgf", 等号: "tfkg", 括号: "rtkg",
+  百分之: "dwpp", 千分之: "twp",
+  大于: "ddgf", 小于: "ihgf", 不等于: "itg",
+  笑: "ttd", 哭: "kkdu", 爱: "ep", 心: "ny",
+  花: "aw", 星: "jtg", 火: "o", 水: "i",
+  太阳: "dybj", 月亮: "eeyp", 赞: "tfqm"
+};
+function symbolCode(w) { return SYM_CODE[w]; }   // 编码构建期写死，零运行时遍历
 var SYMBOL_WORDS = [
   { w: "加", out: "＋" }, { w: "减", out: "－" }, { w: "乘", out: "×" }, { w: "除", out: "÷" },
   { w: "等于", out: "＝" }, { w: "等号", out: "＝" }, { w: "括号", out: "（）" },
@@ -179,21 +254,36 @@ var SYMBOL_WORDS = [
 /* ---------- 五笔查询 ---------- */
 /* ===== 云端词库（词组 + 被砍单字按需加载；端侧只留简码+常用字，离线/无网降级为端侧）===== */
 var CLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/cloud/";
+var GITEE_RAW = "https://gitee.com/zsdili/CloudWubi-Glass-Keyboard/raw/main/";
+/* 云端 JSON：jsDelivr 主源 → Gitee 备用源，带超时竞速；弱网/国内慢时不长期 pending，最终 null 触发离线降级 */
+/* 云端 JSON：Gitee（国内快）与 jsDelivr 并行竞速，任一先成功即用；整体超时后 null 触发离线降级 */
+function fetchCloudJson(rel, timeoutMs) {
+  var urls = [
+    GITEE_RAW + rel,                                                            // 国内优先
+    "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/" + rel
+  ];
+  return new Promise(function (resolve) {
+    var done = false, fails = 0, overall;
+    function finish(j) { if (!done) { done = true; clearTimeout(overall); resolve(j); } }
+    overall = setTimeout(function () { finish(null); }, timeoutMs);
+    urls.forEach(function (u) {
+      fetch(u).then(function (r) { if (!r.ok) throw new Error("http"); return r.json(); })
+        .then(function (j) { finish(j); })
+        .catch(function () { if (++fails >= urls.length) finish(null); });
+    });
+  });
+}
 var CLOUD_SVG = '<svg viewBox="0 0 24 24" width="11" height="11"><path d="M7 18.2a4 4 0 0 1-.5-7.9 5.6 5.6 0 0 1 10.7-1.1 3.9 3.9 0 0 1-.3 7.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 var cloudIndex = {};        // code -> [{t,f}]
 var shardPending = {};     // prefix -> Promise
 function ensureShard(prefix) {
   if (shardPending[prefix]) return shardPending[prefix];
-  shardPending[prefix] = new Promise(function (res) {
-    try {
-      fetch(CLOUD_BASE + prefix + ".json").then(function (r) { return r.json(); }).then(function (j) {
-        Object.keys(j).forEach(function (code) {
-          (cloudIndex[code] = cloudIndex[code] || []).push.apply(cloudIndex[code],
-            j[code].map(function (a) { return { t: a[0], f: a[1] }; }));
-        });
-        res(1);
-      }).catch(function () { res(0); });
-    } catch (e) { res(0); }
+  shardPending[prefix] = fetchCloudJson("cloud/" + prefix + ".json", 2600).then(function (j) {
+    if (j) Object.keys(j).forEach(function (code) {
+      (cloudIndex[code] = cloudIndex[code] || []).push.apply(cloudIndex[code],
+        j[code].map(function (a) { return { t: a[0], f: a[1] }; }));
+    });
+    return j ? 1 : 0;
   });
   return shardPending[prefix];
 }
@@ -205,10 +295,11 @@ function queryWubi(code) {
     var ex = seen[o.t];
     if (ex) {                                   // 同词多来源：合并更高权重，本地学习升级来源
       if ((o.f || 0) > ex.f) ex.f = o.f || 0;
+      if (o.fire) ex.fire = true;
       if (src === "local") ex.src = "local";
       return;
     }
-    var no = { t: o.t, f: o.f || 0, src: src || "base" };
+    var no = { t: o.t, f: o.f || 0, src: src || "base", fire: !!o.fire };
     seen[o.t] = no; into.push(no);
   }
   var cLen = code.length;
@@ -218,10 +309,8 @@ function queryWubi(code) {
   } else {
     (WUBI[code] || []).forEach(function (o) { add(o, exact, "base"); });   // 端侧精确（简码/常用字）
     (cloudIndex[code] || []).forEach(function (o) { add(o, exact, "cloud"); }); // 云端精确（词组/被砍单字，已缓存则即时）
-    (LOCAL_FREQ[code] || []).forEach(function (e) { add({ t: e.t, f: 1.05e7 + e.c * 500 }, exact, "local"); });  // 本地高频缓存优先（recent 置顶之外，频次越高越靠前）
-    if (cLen < 4) Object.keys(WUBI).forEach(function (k) {          // 前缀补全
-      if (k !== code && k.indexOf(code) === 0) (WUBI[k] || []).forEach(function (o) { add(o, prefix); });
-    });
+    (LOCAL_FREQ[code] || []).forEach(function (e) { add({ t: e.t, f: 1.05e7 + e.c * 500, fire: (e.dc || 0) >= FREQ_HOT }, exact, "local"); });  // 本地高频优先；当天≥50加🔥
+    if (cLen < 4) (PREFIX_INDEX[code] || []).forEach(function (o) { add(o, prefix); });  // 前缀补全：O(1)查预建索引
   }
   function recentRank(t) { var ri = state.recent.indexOf(t); return ri >= 0 ? (1e9 - ri * 1000) : 0; }
   var exactSingle = exact.filter(function (o) { return o.t.length === 1; });
@@ -252,20 +341,245 @@ function queryWubi(code) {
     });
   }
   multiSort(exactMulti); multiSort(prefixMulti);
-  var list;
-  if (cLen === 4) list = exactMulti.concat(prefixMulti, exactSingle, prefixSingle); // 四码：规范词组优先
-  else list = exactSingle.concat(prefixSingle, exactMulti, prefixMulti);   // 简码：单字在前
+  var list = exactSingle.concat(prefixSingle, exactMulti, prefixMulti);   // 统一按固化排序：最近上屏/高频单字 → 二字词 → 三字词 → 四字词（全码单字不被词组挤出第一页）
   // 编码到对应中文词时，符号/表情紧跟该词插入；词不在列表则放首选之后
   SYMBOL_WORDS.forEach(function (sw) {
-    var wc = WORD2CODE[sw.w];
+    var wc = symbolCode(sw.w);
     if (wc && (code === wc || code.indexOf(wc) === 0) && list.every(function (o) { return o.t !== sw.out; })) {
       var wi = -1, i;
       for (i = 0; i < list.length; i++) { if (list[i].t === sw.w) { wi = i; break; } }
       list.splice(wi >= 0 ? wi + 1 : Math.min(1, list.length), 0, { t: sw.out, f: 0, src: "sym" });
     }
   });
-  return list.slice(0, 30).map(function (o) { return { t: o.t, src: o.src }; });
+  return list.slice(0, 30).map(function (o) { return { t: o.t, src: o.src, fire: !!o.fire }; });
 }
+
+/* ================= 拼音引擎（全拼 / 双拼 / 简拼，与五笔混打） ================= */
+var PYSYL = {}, PYFULL = {}, PYJIAN = {}, PYDP = {}, PY_META = {};
+(function () {
+  function load(f) {
+    try {
+      var x = new XMLHttpRequest(); x.open("GET", "py/" + f, false); x.send(null);
+      return x.responseText ? JSON.parse(x.responseText) : null;
+    } catch (e) { return null; }
+  }
+  PYSYL = load("syl.json") || {};
+  PYFULL = load("full.json") || {};
+  PYJIAN = load("jian.json") || {};
+  function loadDp(s) { PYDP = load("dp_" + s + ".json") || {}; PY_META.dp = Object.keys(PYDP).length; }
+  loadDp(settings.dpScheme || "flypy");
+  window.reloadDp = loadDp;
+  window.PY_META = PY_META;
+  PY_META.syl = Object.keys(PYSYL).length;
+  PY_META.full = Object.keys(PYFULL).length;
+  PY_META.jian = Object.keys(PYJIAN).length;
+})();
+var SYL_SET = {};
+Object.keys(PYSYL).forEach(function (s) { SYL_SET[s] = 1; });
+var PYCLOUD_BASE = "https://cdn.jsdelivr.net/gh/zsdili/CloudWubi-Glass-Keyboard@main/cloud_py/";
+var pyCloudFull = {}, pyCloudJian = {}, pyPending = {};
+function ensurePyShard(kind, letter) {
+  var key = kind + letter;
+  if (pyPending[key]) return pyPending[key];
+  pyPending[key] = fetchCloudJson("cloud_py/" + kind + "/" + letter + ".json", 2200).then(function (j) {
+    if (j) Object.keys(j).forEach(function (k) {
+      var tgt = kind === "full" ? pyCloudFull : pyCloudJian;
+      (tgt[k] = tgt[k] || []).push.apply(tgt[k], j[k]);
+    });
+    return j ? 1 : 0;
+  });
+  return pyPending[key];
+}
+function splitPinyin(buf) {
+  var n = buf.length, memo = {};
+  function go(i) {
+    if (i === n) return [[]];
+    if (memo[i]) return memo[i];
+    var out = [], j;
+    for (j = i + 1; j <= Math.min(n, i + 6); j++) {
+      var seg = buf.slice(i, j);
+      if (SYL_SET[seg]) go(j).forEach(function (rest) { if (out.length < 24) out.push([seg].concat(rest)); });
+    }
+    memo[i] = out; return out;
+  }
+  return go(0);
+}
+function dpDecode(buf) {
+  var seq = [];
+  for (var k = 0; k + 1 < buf.length; k += 2) {
+    var sy = PYDP[buf.slice(k, k + 2)];
+    if (!sy || !sy.length) return seq;
+    seq.push(sy[0]);
+  }
+  return seq;
+}
+/* 音节级容错（方言/漏字母）：精确切分无词时，允许每音节编辑距离≤1、整条总距离≤dcap，映射到合法音节序列 */
+function editDist(a, b) {
+  var m = a.length, n = b.length, i, j, d = [];
+  for (i = 0; i <= m; i++) d.push([i]);
+  for (j = 1; j <= n; j++) d[0][j] = j;
+  for (i = 1; i <= m; i++)
+    for (j = 1; j <= n; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[m][n];
+}
+var SYL_LIST = Object.keys(SYL_SET);
+function nearSyllables(seg) {
+  if (SYL_SET[seg]) return [{ syl: seg, d: 0 }];
+  if (seg.length < 2) return [];
+  var out = [], got = {};
+  for (var i = 0; i < SYL_LIST.length; i++) {
+    var sy = SYL_LIST[i];
+    if (Math.abs(sy.length - seg.length) > 1) continue;
+    var dd = editDist(seg, sy);
+    if (dd <= 1 && !got[sy]) { got[sy] = 1; out.push({ syl: sy, d: dd }); }
+  }
+  return out;
+}
+function fuzzySyllableSeq(buf, dcap) {
+  var n = buf.length, K = 60;
+  var dp = [];
+  for (var i = 0; i <= n; i++) dp.push([]);
+  dp[0] = [{ seq: [], d: 0 }];
+  function prune(arr, lim) {
+    arr.sort(function (a, b) { return a.d - b.d; });
+    var got = {}, out = [];
+    for (var k = 0; k < arr.length && out.length < lim; k++) {
+      var key = arr[k].seq.join("");
+      if (!got[key]) { got[key] = 1; out.push(arr[k]); }
+    }
+    return out;
+  }
+  for (var p = 0; p < n; p++) {
+    dp[p] = prune(dp[p], K);
+    for (var L = 1; L <= Math.min(6, n - p); L++) {
+      var seg = buf.slice(p, p + L), j = p + L;
+      var cands = SYL_SET[seg] ? [{ syl: seg, d: 0 }] : nearSyllables(seg);
+      dp[p].forEach(function (prev) {
+        cands.forEach(function (nr) {
+          var nd = prev.d + nr.d;
+          if (nd <= dcap) dp[j].push({ seq: prev.seq.concat(nr.syl), d: nd });
+        });
+      });
+    }
+  }
+  return prune(dp[n], 40);
+}
+function queryPinyin(buf) {
+  var multi = [], homo = [], syms = [], prefix = [];
+  var seenM = {}, seenH = {}, seenS = {}, seenP = {};
+  function pushTo(arr, seen, t, f) {
+    if (seen[t] !== undefined) { if (f > seen[t]) seen[t] = f; return; }
+    seen[t] = f; arr.push({ t: t, f: f });
+  }
+  var useDp = !!settings.pyDouble;
+  var seqs = [];
+  if (useDp) { var s0 = dpDecode(buf); if (s0.length) seqs.push(s0); }
+  else seqs = splitPinyin(buf);
+  seqs.forEach(function (seq) {
+    var str = seq.join("");
+    (PYFULL[str] || []).concat(pyCloudFull[str] || []).forEach(function (o) {
+      if (o.sym) pushTo(syms, seenS, o.t, o.f || 0);
+      else if (o.t.length >= 2) pushTo(multi, seenM, o.t, o.f || 0);
+      else pushTo(homo, seenH, o.t, o.f || 0);
+    });
+    if (seq.length === 1) (PYSYL[seq[0]] || []).forEach(function (o) {
+      pushTo(homo, seenH, o.t, o.f || 0);
+    });
+  });
+  if (!useDp) (PYJIAN[buf] || []).concat(pyCloudJian[buf] || []).forEach(function (o) {
+    if (o.sym) pushTo(syms, seenS, o.t, o.f || 0);
+    else if (o.t.length >= 2) pushTo(multi,seenM, o.t, o.f || 0);
+  });
+  if (!useDp && !seqs.length) {
+    for (var k2 = buf.length - 1; k2 >= 1; k2--) {
+      var head = buf.slice(0, k2), tail = buf.slice(k2);
+      if (splitPinyin(head).length) {
+        Object.keys(SYL_SET).forEach(function (sy) {
+          if (sy.indexOf(tail) === 0 && prefix.length < 6)
+            (PYSYL[sy] || []).slice(0, 1).forEach(function (o) { pushTo(prefix, seenP, o.t, 0); });
+        });
+        break;
+      }
+    }
+    Object.keys(PYFULL).forEach(function (k3) {
+      if (k3.indexOf(buf) === 0 && prefix.length < 10)
+        (PYFULL[k3] || []).slice(0, 1).forEach(function (o) { if (!o.sym) pushTo(prefix, seenP, o.t, 0); });
+    });
+  }
+  /* 精确切分完全无词 → 音节级容错（漏字母/方言），总距离≤2，词频为主、纠错距离轻微降权 */
+  var fuzzy = [];
+  if (!useDp && !multi.length && !homo.length && !syms.length && buf.length >= 3 && buf.length <= 7) {
+    var seenF = {};
+    fuzzySyllableSeq(buf, 2).forEach(function (r) {
+      var str = r.seq.join("");
+      (PYFULL[str] || []).forEach(function (o) {
+        if (!o.sym && o.t.length >= 2 && seenF[o.t] === undefined) {
+          seenF[o.t] = 1;
+          fuzzy.push({ t: o.t, f: (o.f || 0) - r.d * 50 });
+        }
+      });
+    });
+    fuzzy.sort(function (a, b) { return b.f - a.f; });
+  }
+  multi.sort(function (a, b) { return b.f - a.f; });
+  homo.sort(function (a, b) { return b.f - a.f; });   // 同音字按词频：常用字（你）稳定首位，不受云端/到达时序影响
+  var out = [];
+  fuzzy.slice(0, 8).forEach(function (o) { out.push({ t: o.t, src: "py-fuzzy" }); });
+  multi.slice(0, 12).forEach(function (o) { out.push({ t: o.t, src: "py" }); });
+  homo.slice(0, 10).forEach(function (o) { out.push({ t: o.t, src: "py" }); });
+  syms.forEach(function (o) { out.push({ t: o.t, src: "sym" }); });
+  prefix.slice(0, 6).forEach(function (o) { out.push({ t: o.t, src: "py-pre" }); });
+  return out.slice(0, 30);
+}
+/* 混打候选合并：五笔在前、拼音在后，同词去重 */
+function mergeWP(w, p) {
+  var seen = {}, out = [];
+  w.slice(0, 14).forEach(function (o) {
+    var t = (typeof o === "string") ? o : o.t;
+    if (seen[t]) return; seen[t] = 1; out.push(o);
+  });
+  p.slice(0, 14).forEach(function (o) {
+    var t = (typeof o === "string") ? o : o.t;
+    if (seen[t]) return; seen[t] = 1; out.push(o);
+  });
+  return out.slice(0, 28);
+}
+/* 触发拼音云端分片（按全拼首字母；双拼按解码音节首字母） */
+function schedulePyCloud(buf) {
+  var letters = [];
+  if (settings.pyDouble) {
+    for (var i = 0; i + 2 <= buf.length; i += 2) {
+      var sy0 = PYDP[buf.slice(i, i + 2)];
+      if (sy0 && sy0[0]) letters.push(sy0[0][0]);
+    }
+  } else {
+    var ss = splitPinyin(buf);
+    if (ss.length) ss[0].forEach(function (s) { letters.push(s[0]); });
+    else if (buf[0]) letters.push(buf[0]);
+  }
+  letters = Array.from(new Set(letters));
+  if (!letters.length) return Promise.resolve(0);
+  var tasks = [];
+  letters.forEach(function (l) { tasks.push(ensurePyShard("full", l)); tasks.push(ensurePyShard("jian", l)); });
+  return Promise.all(tasks);
+}
+window.queryPinyin = queryPinyin; window.queryWubi = queryWubi; window.mergeWP = mergeWP;
+window.calcValue = calcValue;
+window.ensureShard = ensureShard; window.ensurePyShard = ensurePyShard; window.splitPinyin = splitPinyin;
+/* 开发期只读诊断钩子：读取运行态/本地词/合成编码（不收集、不外传；用于回归与用户反馈诊断）*/
+window.__kb = {
+  state: function () { return { buf: state.buf, mode: state.mode, shift: state.shift,
+    beforeTail: state.before.slice(-30),
+    cands: (state.cands || []).map(function (c) { return typeof c === "string" ? c : { t: c.t, src: c.src, fire: !!c.fire }; }) }; },
+  local: function () { var o = []; Object.keys(LOCAL_FREQ).forEach(function (c) { LOCAL_FREQ[c].forEach(function (e) { o.push({ code: c, t: e.t, c: e.c, dc: e.dc }); }); }); return o; },
+  code: function (t) { return tryUserCode(t); },
+  today: function () { return LOCAL_TODAY; },
+  /* 自动化动作（开发期回归用；不收集、不外传）*/
+  commit: function (t) { commitText(t); return state.before.slice(-20); },
+  pick: function () { if (state.cands && state.cands.length) { var f = state.cands[0]; pickCand(typeof f === "string" ? f : f.t); return 1; } return 0; },
+  segNow: function () { segmentAndLearn(); return { segLen: state.segLen }; }
+};
 
 /* ---------- 实时计算 ---------- */
 function calcValue(expr) {
@@ -362,7 +676,7 @@ function renderLetters() {
   sp.innerHTML = '空格<span class="sp-mic">🎤长按语音</span>';
   r4.appendChild(sp);
   r4.appendChild(punctToggleKey("rpunct"));
-  r4.appendChild(key("enter", { "data-act": "enter", "aria-label": "回车" }, "↵"));
+  r4.appendChild(key("enter", { "data-act": "enter", "aria-label": "回车" }, "↩"));
   renderLetterFaces();
   renderPunctToggles();
 }
@@ -399,12 +713,12 @@ function renderLetterFaces() {
   var sk = $("#shiftKey");
   if (sk) {
     sk.textContent = "⇧";
-    sk.className = "key fn shift-" + state.shift;
+    sk.className = "key fn shift-" + state.shift + (state.shiftLock ? " shift-lock" : "");
     sk.setAttribute("data-act", "shift");
   }
 }
 function punctToggleKey(id) {
-  var k = el("button", "key fn punct-toggle");
+  var k = el("button", "key punct-toggle");
   k.setAttribute("type", "button"); k.id = id;
   var a = el("span", "pt-alt"); var m = el("span", "pt-main");
   k.appendChild(a); k.appendChild(m);   // 备用（！/？）小字在上、主标点（，/。）在下（与字母键上标位置一致）
@@ -443,15 +757,15 @@ function renderNumber() {
     var i = n - 1, r = Math.floor(i / 3) + 1, c = (i % 3) + 2;
     g.appendChild(npK(String(n), "", { "data-num": String(n) }, r, c));
   }
-  // 右列：退格 / @ / 小数点（9 右）
+  // 右列：退格 / @ / 空格（9 右，单击上屏默认备选）
   g.appendChild(npK("⌫", "fnr", { "data-act": "del", "aria-label": "退格" }, 1, 5));
   g.appendChild(npK("@", "fnr", { "data-act": "commitAt" }, 2, 5));
-  g.appendChild(npK(".", "np-dot", { "data-num": "." }, 3, 5));
-  // 底行：返回 / ％（0 左）/ 0（在 8 正下方）/ 空格（0 右，单击上屏默认备选，优先计算纯结果）/ 回车；符号切换走工具栏
+  g.appendChild(npK("空格", "np-space", { "data-act": "npSpace", "aria-label": "空格" }, 3, 5));
+  // 底行：返回 / ％（0 左）/ 0（8 正下）/ 小数点（0 右）/ 回车；符号切换走工具栏
   g.appendChild(npK("返回", "fnr", { "data-act": "backLetters" }, 4, 1));
   g.appendChild(npK("％", "fnr", { "data-calc": "%", "aria-label": "百分号" }, 4, 2));
   g.appendChild(npK("0", "", { "data-num": "0" }, 4, 3));
-  g.appendChild(npK("空格", "np-space", { "data-act": "npSpace", "aria-label": "空格" }, 4, 4));
+  g.appendChild(npK(".", "np-dot", { "data-num": "." }, 4, 4));
   g.appendChild(npK("↵", "enter", { "data-act": "enter", "aria-label": "回车" }, 4, 5));
   renderCalc();
 }
@@ -632,6 +946,7 @@ function renderClip() {
   }
   state.clips.forEach(function (t, i) {
     var item = el("button", "clip-item"); item.setAttribute("type", "button");
+    if (learnMark[t]) item.classList.add("clip-learn");   // 新增词：黄橙背景
     if (state.clipDrop === t) { var dp = el("span", "clip-drop"); dp.textContent = "💧"; item.appendChild(dp); }
     var idx = el("span", "clip-idx"); idx.textContent = (i + 1);
     var tx = el("span", "clip-text"); tx.textContent = t;
@@ -650,6 +965,7 @@ function deleteClip(i) {
  * ============================================================ */
 function commitText(t) {
   if (!t) return;
+  TR("commit:" + [...t].length + "字");
   playClick();
   bridge(function (b) { b.commit(t); });
   if (!isApk()) { var ti = $("#testInput"); ti.value += t; }
@@ -683,26 +999,29 @@ function tryUserCode(t) {
   return userPhraseCode(t);
 }
 /* ===== 本地高频词：以"文本框真实文本"划词统计（非候选栏）；用户自有设备、无过滤、不分发 ===== */
+var SEG_W2C = null;
 function segLexicon() {
-  var w2c = {};
-  function addIdx(idx) { Object.keys(idx).forEach(function (code) { (idx[code] || []).forEach(function (o) {
-    if (o.t && o.t.length >= 2 && !w2c[o.t]) w2c[o.t] = code;
-  }); }); }
-  addIdx(WUBI); addIdx(cloudIndex);
-  Object.keys(LOCAL_FREQ).forEach(function (code) { LOCAL_FREQ[code].forEach(function (e) { if (!w2c[e.t]) w2c[e.t] = code; }); });
-  return w2c;
+  if (!SEG_W2C) {
+    SEG_W2C = {};
+    function addIdx(idx) { Object.keys(idx).forEach(function (code) { (idx[code] || []).forEach(function (o) {
+      if (o.t && o.t.length >= 2 && !SEG_W2C[o.t]) SEG_W2C[o.t] = code;
+    }); }); }
+    addIdx(WUBI); addIdx(cloudIndex);
+    Object.keys(LOCAL_FREQ).forEach(function (code) { LOCAL_FREQ[code].forEach(function (e) { if (!SEG_W2C[e.t]) SEG_W2C[e.t] = code; }); });
+  }
+  return SEG_W2C;
 }
 function canMakeAll(w) {
   var ch = [...w];
   for (var i = 0; i < ch.length; i++) if (!UC[ch[i]]) return false;
   return true;
 }
-/* 未登录碎片造词：短句(最长8)优先 → 6→5→4→3；只造每字全码齐全的片段；2字不造（2字词已全部在本地词库）*/
+/* 未登录碎片造词：短句(最长8)优先 → …→4→3→2；只造每字全码齐全的片段；未登录二字词同样学习（词库无法穷尽，靠使用补齐）*/
 function makeUnknown(frag) {
   var res = [], i = frag.length;
   while (i > 0) {
     var hit = null;
-    for (var L = Math.min(8, i); L >= 3; L--) { var w = frag.slice(i - L, i); if (canMakeAll(w)) { hit = w; break; } }
+    for (var L = Math.min(8, i); L >= 2; L--) { var w = frag.slice(i - L, i); if (canMakeAll(w)) { hit = w; break; } }
     if (hit) { res.push({ t: hit, c: userPhraseCode(hit) }); i -= hit.length; }
     else i--;
   }
@@ -732,10 +1051,18 @@ function segmentText(text, w2c) {
 function bumpLocal(t, code) {
   var today = Math.floor(Date.now() / 86400000);
   var arr = LOCAL_FREQ[code] || (LOCAL_FREQ[code] = []);
+  if (SEG_W2C && !SEG_W2C[t]) SEG_W2C[t] = code;   // 增量同步划词缓存
   var e = arr.filter(function (x) { return x.t === t; })[0], isNew = 0;
-  if (!e) { e = { t: t, c: 0, d: today }; arr.push(e); LOCAL_TODAY.n += 1; save("cw_local_today", LOCAL_TODAY); isNew = 1; }
+  if (!e) { e = { t: t, c: 0, d: today, dd: today, dc: 0 }; arr.push(e); LOCAL_TODAY.n += 1; save("cw_local_today", LOCAL_TODAY); isNew = 1; }
+  if (e.dd !== today) { e.dd = today; e.dc = 0; }   // 当天计数滚动（dc=最近一天上屏次数）
+  e.dc = (e.dc || 0) + 1;
   e.c = (today - e.d >= WEEK_DAYS) ? 1 : e.c + 1; e.d = today;
   enforceLocalCap(); save("cw_local_freq", LOCAL_FREQ);
+  if (isNew) {   // 新增词：标记黄橙，并直接列为剪贴板记录（去重、置顶）
+    learnMark[t] = true; save("cw_learnmark", learnMark);
+    state.clips = [t].concat((state.clips || []).filter(function (x) { return x !== t; })).slice(0, 50);
+    saveClips();
+  }
   return isNew;
 }
 function segmentAndLearn() {
@@ -767,6 +1094,75 @@ function enforceLocalCap() {
 function renderLocalStat() {
   var elx = $("#localFreqStat");
   if (elx) elx.textContent = "本地高频词 " + localCount() + "/500 · 今日新增 " + LOCAL_TODAY.n + " · 高频(周≥50) " + localHotCount();
+  var wh = $("#wubiHealth");
+  if (wh) {
+    var m = window.WUBI_META || { items: 0, codes: 0, failed: [] };
+    wh.textContent = "端侧码表 " + m.items + " 条/" + m.codes + " 编码" + (m.failed && m.failed.length ? " · 加载失败分片:" + m.failed.join(",") : " · 加载正常");
+  }
+  renderLocalFreqList();
+}
+function renderLocalFreqList() {
+  var box = $("#localFreqList");
+  if (!box) return;
+  box.innerHTML = "";
+  var rows = [];
+  Object.keys(LOCAL_FREQ).forEach(function (code) {
+    LOCAL_FREQ[code].forEach(function (e) { rows.push({ code: code, e: e }); });
+  });
+  rows.sort(function (a, b) { return b.e.c - a.e.c; });
+  if (!rows.length) { box.textContent = "暂无本地划词（在文本框输入整段话后会自动划词保存）"; box.className = "local-freq-list empty"; return; }
+  box.className = "local-freq-list";
+  rows.slice(0, 120).forEach(function (r) {
+    var item = el("div", "lf-item");
+    var tx = el("span", "lf-text"); tx.textContent = r.e.t;
+    var cc = el("span", "lf-count"); cc.textContent = r.e.c + "次";
+    var del = el("button", "lf-del"); del.setAttribute("type", "button"); del.textContent = "×";
+    del.addEventListener("click", function () { removeLocalWord(r.code, r.e.t); });
+    item.appendChild(tx); item.appendChild(cc); item.appendChild(del);
+    box.appendChild(item);
+  });
+}
+function removeLocalWord(code, text) {
+  if (!LOCAL_FREQ[code]) return;
+  LOCAL_FREQ[code] = LOCAL_FREQ[code].filter(function (x) { return x.t !== text; });
+  if (!LOCAL_FREQ[code].length) delete LOCAL_FREQ[code];
+  save("cw_local_freq", LOCAL_FREQ);
+  renderLocalStat(); renderLocalFreqList();
+  toast("已删除本地划词：" + text);
+}
+/* ---------- 改进计划：授权后匿名上传词频（默认关；端点未配置时仅本地排队） ---------- */
+var TELE_ENDPOINT = "";   // 词频回流端点（部署腾讯云 SCF 后填入）
+var teleQueue = load("cw_tele_queue", []);
+function buildTelePayload() {
+  var words = {};
+  Object.keys(LOCAL_FREQ).forEach(function (code) {
+    LOCAL_FREQ[code].forEach(function (e) {
+      if (e.t && e.t.length >= 2) words[e.t] = (words[e.t] || 0) + (e.c || 1);
+    });
+  });
+  return { v: "3.4", d: LOCAL_DAY, words: words };
+}
+function maybeTelemetry() {
+  if (!settings.telemetry) return;
+  var payload = buildTelePayload();
+  if (!TELE_ENDPOINT) {
+    teleQueue.push({ t: Date.now(), n: Object.keys(payload.words).length });
+    save("cw_tele_queue", teleQueue.slice(-20)); renderTeleStat(); return;
+  }
+  try {
+    fetch(TELE_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      .then(function (r) { if (r.ok) { teleQueue.push({ t: Date.now(), ok: 1 }); save("cw_tele_queue", teleQueue.slice(-20)); renderTeleStat(); } })
+      .catch(function () {});
+  } catch (e) {}
+}
+function renderTeleStat() {
+  var box = $("#teleStat");
+  if (!box) return;
+  var n = 0;
+  try { n = Object.keys(buildTelePayload().words).length; } catch (e) {}
+  box.textContent = settings.telemetry
+    ? "已授权 · 可上报词 " + n + " 条" + (TELE_ENDPOINT ? " · 端点已配置" : " · 端点待部署（暂仅本地）")
+    : "未开启 · 词频仅存本机";
 }
 /* 对一段文本（如剪贴板新记录）后台划词保存，返回保存词条数 */
 function learnText(text) {
@@ -779,13 +1175,13 @@ function learnText(text) {
   return n;
 }
 function delOnce() {
-  if (state.buf) { state.buf = state.buf.slice(0, -1); afterBufChange(); renderLetterFaces(); return; }
+  TR("del");
+  if (state.buf) { state.buf = state.buf.slice(0, -1); afterBufChange(); return; }
   playClick();
   bridge(function (b) { b.del(1); });
   if (!isApk()) { var ti = $("#testInput"); ti.value = ti.value.slice(0, -1); state.before = ti.value; }
   else if (state.before) state.before = state.before.slice(0, -1);
   if (state.panel === "number") calcDelTail();
-  renderLetterFaces();
   scheduleCtx();
   if (state.mode === "en") refreshEnComplete();
 }
@@ -800,18 +1196,35 @@ function commitCode() { // 回车：上屏当前编码/英文缓冲，绝不上�
   if (state.mode === "en") commitText(enCase(state.buf));
   else commitText(state.buf);
 }
+/* 标点上屏前先消费编码：有候选首选上屏、无候选编码上屏（首选+标点先后上屏，不丢已打字）*/
+function consumeBuf() {
+  if (!state.buf) return false;
+  if (state.cands && state.cands.length) {
+    var f = state.cands[0]; pickCand(typeof f === "string" ? f : f.t);
+  } else commitText(state.mode === "en" ? enCase(state.buf) : state.buf);
+  return true;
+}
 
 function afterBufChange() {
-  if (state.mode === "en") state.cands = enPrefixCands(state.buf);
-  else state.cands = state.buf ? queryWubi(state.buf) : [];
-  renderCands();
-  // 满4码：异步拉云端词组分片，回来后（编码未变）刷新候选；无网/失败则保持端侧，不阻塞输入
-  if (state.mode !== "en" && state.buf.length === 4) {
-    var cur = state.buf;
-    ensureShard(cur.slice(0, 2)).then(function (ok) {
-      if (ok && state.buf === cur) { state.cands = queryWubi(cur); renderCands(); }
-    });
+  var cur = state.buf;
+  function recompute() {
+    if (state.buf !== cur) return;
+    if (state.mode === "en") state.cands = enPrefixCands(cur);
+    else if (state.mode === "py") state.cands = queryPinyin(cur);
+    else if (state.mode === "smart") {
+      var wp0 = mergeWP(queryWubi(cur), queryPinyin(cur));
+      // 中文（五笔+拼音）无结果时用英文前缀兜底，实现中英混打不切换；英文不挤占中文候选
+      state.cands = wp0.length ? wp0 : enPrefixCands(cur);
+    }
+    else state.cands = queryWubi(cur);
+    renderCands();
   }
+  recompute();
+  if (!cur) return;
+  if ((state.mode === "wubi" || state.mode === "smart") && cur.length === 4)
+    ensureShard(cur.slice(0, 2)).then(recompute);
+  if (state.mode === "smart" || state.mode === "py")
+    schedulePyCloud(cur).then(recompute);
 }
 function enPrefixCands(pre) {
   pre = pre.toLowerCase();
@@ -831,15 +1244,20 @@ function refreshEnComplete() {
   refreshContext();
 }
 function pressLetter(c) {
+  var _t0 = performance.now();
+  TR("press:" + c);
   playClick();
+  if (state.shiftLock) { commitText(c.toUpperCase()); renderLetterFaces(); markKey(Math.round(performance.now() - _t0)); return; }  // 上档大写态：任意模式直接上大写英文
   if (state.mode === "en" || state.isPassword) {  // 密码框：字母逐字符上屏，不进五笔编码
     commitText(enLetterCase(c));
     refreshEnComplete();
     renderLetterFaces();
+    markKey(Math.round(performance.now() - _t0));
     return;
   }
   state.buf += c;
   afterBufChange();
+  markKey(Math.round(performance.now() - _t0));
 }
 function pressNumber(n) {
   playClick();
@@ -907,39 +1325,50 @@ function setPunct(which, v) {
   renderPunctToggles();
 }
 
-/* Shift 二态：upper（大写，默认）↔ lower（小写） */
+/* 上档键：任何状态按一下切到「英文大写输出」，再按恢复原模式（中文 / 英文小写） */
 function cycleShift() {
-  state.shift = state.shift === "upper" ? "caps" : state.shift === "caps" ? "lower" : "upper";
-  renderLetterFaces();
-  toast(state.shift === "caps" ? "大写锁定" : state.shift === "lower" ? "小写输入" : "智能大小写");
+  if (state.shiftLock) {
+    state.shiftLock = false;
+    state.mode = state.shiftPrevMode || state.mode;    // 恢复进入前的模式
+    updateModeUI();
+    toast("已恢复" + (state.mode === "en" ? "英文" : "中文") + "输入");
+  } else {
+    state.shiftPrevMode = state.mode;                 // 记住原模式
+    state.shiftLock = true;
+    state.buf = ""; state.cands = []; renderCands();
+    toast("英文大写");
+  }
+  renderLetterFaces(); renderPunctToggles();
 }
 
 /* 模式切换（排它） */
 function cycleMode() {
-  state.mode = state.mode === "smart" ? "wubi" : state.mode === "wubi" ? "en" : "smart";
+  state.mode = state.mode === "smart" ? "wubi" : state.mode === "wubi" ? "py" : state.mode === "py" ? "en" : "smart";
   if (!state.isPassword) state.userMode = state.mode;   // 记住用户主动选择的模式（密码框临时英文不覆盖）
   state.buf = ""; state.cands = []; state.ctxCands = [];
   state.shift = "upper";
   updateModeUI(); renderLetterFaces(); renderPunctToggles(); renderCands(); scheduleCtx();
-  toast(state.mode === "smart" ? "中英混输（五笔）" : state.mode === "wubi" ? "纯五笔" : "英文");
+  toast(state.mode === "smart" ? "混输（五笔+拼音）" : state.mode === "wubi" ? "纯五笔" : state.mode === "py" ? "纯拼音" : "英文");
 }
 function updateModeUI() {
   var b = $("#modeBtn");
   if (state.panel !== "letters") {
     b.textContent = "ABC"; b.classList.remove("en"); return;
   }
-  b.textContent = state.mode === "smart" ? "混" : state.mode === "wubi" ? "中" : "EN";
+  b.textContent = state.mode === "smart" ? "混" : state.mode === "wubi" ? "中" : state.mode === "py" ? "拼" : "EN";
   b.classList.toggle("en", state.mode === "en");
 }
 
 /* 面板切换（单一排它，统一返回） */
 function showPanel(n) {
   state.panel = n;
+  TR("panel:" + n);
   $all("#panels > .panel").forEach(function (p) { p.classList.toggle("active", p.id === "p-" + n); });
   if (n === "clip") { pullClip(); renderClip(); }
-  if (n === "settings") { refreshDiagView(); renderEngineList(); }
+  if (n === "settings") { refreshDiagView(); renderEngineList(); renderLocalStat(); renderTeleStat(); }
   if (n !== "letters" && n !== "number") { state.buf = ""; state.cands = []; renderCands(); }
   updateNumSymSwitch(n);
+  updateToolbarActive(n);
   updateModeUI();
   if (SOFT_GPU) {
     // SwiftShader 下新切换面板首次光栅化会透明：强制 panels 重绘（真机硬件GPU不触发）
@@ -959,6 +1388,19 @@ function updateNumSymSwitch(n) {
   });
 }
 
+/* 工具栏面板按钮：点一次进入，再点同一按钮返回字母主键盘 */
+function togglePanel(target) {
+  playClick();
+  showPanel(state.panel === target ? "letters" : target);
+}
+/* 高亮当前所在面板对应的工具栏按钮（number/punct 由 numSymSwitch 处理）*/
+function updateToolbarActive(n) {
+  ["clip", "emoji", "phrase", "settings"].forEach(function (a) {
+    var b = document.querySelector('#toolbar [data-act="' + a + '"]');
+    if (b) b.classList.toggle("active", n === a);
+  });
+}
+
 /* 左上角键：字母面板=语言切换（混/中/EN）；子面板=ABC 返回字母键盘 */
 function modeBtnTap() {
   playClick();
@@ -974,8 +1416,9 @@ function renderCands() {
     var bt = el("span", "buftag"); bt.textContent = state.buf; box.appendChild(bt);
     list = state.cands.map(function (x, i) {
       var o = (typeof x === "string") ? { t: x, src: "" } : x;
-      var sc = o.src === "local" ? " src-local" : o.src === "cloud" ? " src-cloud" : "";
-      return { t: o.t, src: o.src, n: i < 9 ? String(i + 1) : "", cls: (i === 0 ? "cand sel" : "cand") + sc };
+      var sc = o.src === "local" ? " src-local" : o.src === "cloud" ? " src-cloud"
+        : (o.src === "py" || o.src === "py-pre") ? " src-py" : o.src === "sym" ? " src-sym" : "";
+      return { t: o.t, src: o.src, fire: !!o.fire, n: i < 9 ? String(i + 1) : "", cls: (i === 0 ? "cand sel cand-anchor" : "cand") + sc };
     });
   } else {
     list = state.ctxCands || [];
@@ -985,6 +1428,8 @@ function renderCands() {
     if (c.n) { var num = el("span", "num"); num.textContent = c.n; b.appendChild(num); }
     var tx = el("span", "cw"); tx.textContent = c.t; b.appendChild(tx);
     if (c.src === "cloud") { var ic = el("i", "src-ic"); ic.innerHTML = CLOUD_SVG; b.appendChild(ic); }
+    if (c.src === "py" || c.src === "py-pre") { var pi = el("i", "src-ic py-ic"); pi.textContent = "拼"; b.appendChild(pi); }
+    if (c.fire) { var fr = el("i", "fire-ic"); fr.textContent = "🔥"; b.appendChild(fr); }
     box.appendChild(b);
   });
 }
@@ -1001,16 +1446,19 @@ function getBefore(n) {
   return $("#testInput").value.slice(-(n || 40));
 }
 function refreshContext() {
-  var before = getBefore(40);
+  if (state.isPassword || state.numPassword) { state.ctxCands = []; state.enPre = ""; renderCands(); return; }
+  var before = getBefore(100);
   state.before = before;
-  renderLetterFaces();
   if (state.buf) { renderCands(); return; }
-  var zhTail = (before.match(/[\u4e00-\u9fa5]+$/) || [""])[0];
+  var zhTail = (before.match(/[一-龥]+$/) || [""])[0];
+  if (!zhTail && state.before) zhTail = (state.before.match(/[一-龥]+$/) || [""])[0];
   var enTail = (before.match(/[a-zA-Z']+$/) || [""])[0];
   var cands = [];
   state.enPre = "";
   if (isZh() && zhTail) {
-    sugFor(zhTail).forEach(function (w) { cands.push({ t: w, cls: "cand" }); });
+    var zhSugs = contextSug(before);
+    if (!zhSugs.length && state.before) zhSugs = contextSug(state.before);  // 宿主读取滞后时本地兜底
+    zhSugs.forEach(function (w) { cands.push({ t: w, cls: "cand", src: "ctx" }); });
     if (settings.trans && zhTail.length >= 2) {
       var zh = zhTail.slice(-12);
       translate(zh, "zh2en", function (en) {
@@ -1026,7 +1474,7 @@ function refreshContext() {
       .forEach(function (w) { cands.push({ t: w, cls: "cand" }); });
     if (settings.trans && w0.length >= 2) {
       translate(w0, "en2zh", function (zh) {
-        if (zh && /[\u4e00-\u9fa5]/.test(zh) && state.before.toLowerCase().endsWith(w0) && !state.buf) {
+        if (zh && /[一-龥]/.test(zh) && state.before.toLowerCase().endsWith(w0) && !state.buf) {
           state.ctxCands = mergeTr(state.ctxCands, zh); renderCands();
         }
       });
@@ -1083,6 +1531,8 @@ function suppressNextClick(el) {
   setTimeout(function () { if (suppressEl === el) suppressEl = null; }, 450);
 }
 
+var SWIPE_DY = 17;        // 上滑垂直阈值(CSS px)：明确上滑才触发，避免正常击键的轻微上移被误判吞键
+var SWIPE_RATIO = 1.5;    // 垂直占优比：斜向移动不算上滑
 function longKind(el0) {
   if (el0.matches('[data-act="del"]')) return "del";
   if (el0.id === "space" || el0.getAttribute("data-act") === "space") return "space";
@@ -1094,6 +1544,7 @@ function longKind(el0) {
 }
 
 document.addEventListener("pointerdown", function (e) {
+  if (ptr) { clearTimeout(ptr.timer); if (ptr.iv) clearInterval(ptr.iv); if (ptr.el) ptr.el.classList.remove("press"); }  // 快速连点/指针被抢占：清理上一指针，避免旧长按误触发
   if (e.target.closest(".popup")) return;
   if (e.target.closest(".clip-del")) return; // ✕ 交给 click
   var topZone = e.target.closest("#candbar,#toolbar");
@@ -1127,7 +1578,7 @@ function onMove(e) {
   // 字母键上滑 → 上屏该键对应标点。真机滑动一段后系统会 pointercancel，故阈值要小、提前抢占
   if (ptr.el.hasAttribute("data-letters") && !ptr.swipePunct && !ptr.long) {
     ptr.lastDx = dx; ptr.lastDy = dy;
-    if (dy < -11 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+    if (dy < -SWIPE_DY && Math.abs(dy) > Math.abs(dx) * SWIPE_RATIO) {
       ptr.swipePunct = true; ptr.long = true;
       ptr.el.classList.add("swipe-punct"); ptr.el.classList.remove("press");
       vib(12); L("字母上滑标点 dy=" + dy);
@@ -1136,7 +1587,7 @@ function onMove(e) {
   // 主键盘数字行上滑 → 与点击一致（上屏数字）
   if (ptr.el.closest("#rowNum [data-num]") && !ptr.swipePunct && !ptr.long) {
     ptr.lastDx = dx; ptr.lastDy = dy;
-    if (dy < -11 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+    if (dy < -SWIPE_DY && Math.abs(dy) > Math.abs(dx) * SWIPE_RATIO) {
       ptr.swipePunct = true; ptr.numSwipe = true; ptr.long = true;
       ptr.el.classList.add("swipe-punct"); ptr.el.classList.remove("press");
       vib(12); L("数字行上滑 dy=" + dy);
@@ -1146,7 +1597,7 @@ function onMove(e) {
   var ptKey = ptr.el.closest("#lpunct,#rpunct");
   if (ptKey && !ptr.swipePunct && !ptr.long) {
     ptr.lastDx = dx; ptr.lastDy = dy;
-    if (dy < -11 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+    if (dy < -SWIPE_DY && Math.abs(dy) > Math.abs(dx) * SWIPE_RATIO) {
       ptr.swipePunct = true; ptr.long = true;
       ptKey.classList.add("swipe-punct"); ptKey.classList.remove("press");
       vib(12); L("标点键上滑切换 dy=" + dy);
@@ -1186,23 +1637,23 @@ function onUp() {
   // 上滑：字母键上标点；数字行上滑=点击（上屏数字）。pointercancel 时用最后位移兜底
   var isNumUp = p.el.closest("#rowNum [data-num]");
   var wantSwipe = p.swipePunct
-      || (p.el.hasAttribute("data-letters") && p.lastDy < -11 && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * 1.2)
-      || (isNumUp && p.lastDy < -11 && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * 1.2);
+      || (p.el.hasAttribute("data-letters") && p.lastDy < -SWIPE_DY && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * SWIPE_RATIO)
+      || (isNumUp && p.lastDy < -SWIPE_DY && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * SWIPE_RATIO);
   if (wantSwipe) {
     p.el.classList.remove("swipe-punct");
     if (p.numSwipe || isNumUp) {
       pressNumber(p.el.getAttribute("data-num"));
     } else {
       var pc = p.el.getAttribute("data-letters"), pch = keyPunct(pc);
-      if (pch) commitText(pch);
+      if (pch) { consumeBuf(); commitText(pch); }
     }
     p.swipePunct = true; p.long = true;
   }
   // 标点键上滑 → 切换主/副标点（不上屏）；p.long 抑制随后 click，避免顺带标点
   var ptUp = p.el.closest("#lpunct,#rpunct");
-  if (ptUp && (p.swipePunct || (p.lastDy < -11 && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * 1.2))) {
+  if (ptUp && (p.swipePunct || (p.lastDy < -SWIPE_DY && Math.abs(p.lastDy) > Math.abs(p.lastDx || 0) * SWIPE_RATIO))) {
     var which = ptUp.id === "lpunct" ? "l" : "r";
-    commitText(punctPair(which)[1]);   // 上滑直接上屏备用标点（！/？），不改默认
+    consumeBuf(); commitText(punctPair(which)[1]);   // 首选先上屏，再上备用标点（！/？），不改默认
     ptUp.classList.remove("swipe-punct");
     p.swipePunct = true; p.long = true;
   }
@@ -1227,7 +1678,7 @@ document.addEventListener("click", function (e) {
   var el0 = e.target.closest(TAP_SEL);
   if (el0) handleTap(el0);
   var pt = e.target.closest("#lpunct,#rpunct");
-  if (pt) { var which = pt.id === "lpunct" ? "l" : "r"; commitText(punctPair(which)[0]); }
+  if (pt) { var which = pt.id === "lpunct" ? "l" : "r"; consumeBuf(); commitText(punctPair(which)[0]); }
 });
 
 function onLong(p) {
@@ -1287,13 +1738,22 @@ function handleTap(k) {
   }
   if (k.classList.contains("segback")) { showPanel("letters"); return; }
   if (k.classList.contains("seg-clear")) {
-    state.clips = []; saveClips(); renderClip(); toast("剪贴板已清空"); return;
+    state.clips = []; learnMark = {}; save("cw_learnmark", learnMark); saveClips(); renderClip(); toast("剪贴板已清空"); return;
   }
   if (k.classList.contains("toggle")) {
     var s = k.getAttribute("data-set");
     settings[s] = !settings[s]; save("cw_settings", settings);
     k.classList.toggle("on", settings[s]);
-    applySettings(); if (s === "trans") scheduleCtx();
+    applySettings();
+    if (s === "trans") scheduleCtx();
+    if (s === "telemetry") { if (settings.telemetry) toast("已加入改进计划，匿名上传"); renderTeleStat(); }
+    return;
+  }
+  if (k.hasAttribute("data-dp")) {
+    settings.dpScheme = k.getAttribute("data-dp"); save("cw_settings", settings);
+    if (window.reloadDp) window.reloadDp(settings.dpScheme);
+    $all("[data-dp]").forEach(function (b) { b.classList.toggle("sel", b.getAttribute("data-dp") === settings.dpScheme); });
+    toast("双拼方案：" + k.textContent);
     return;
   }
   if (k.hasAttribute("data-theme")) {
@@ -1319,16 +1779,16 @@ function doAct(act, k) {
     case "enter": actEnter(); break;
     case "shift": cycleShift(); break;
     case "ctxKey": if (isZh()) commitText("、"); else cycleShift(); break;
-    case "number": showPanel("number"); break;
-    case "punct":
+    case "number": togglePanel("number"); break;
+    case "punct": togglePanel("punct"); break;
     case "goSymbol": showPanel("punct"); break;
     case "letters":
     case "backLetters": showPanel("letters"); break;
     case "commitAt": commitText("@"); break;
-    case "emoji": showPanel("emoji"); break;
-    case "clip": showPanel("clip"); break;
-    case "phrase": showPanel("phrase"); break;
-    case "settings": showPanel("settings"); break;
+    case "emoji": togglePanel("emoji"); break;
+    case "clip": togglePanel("clip"); break;
+    case "phrase": togglePanel("phrase"); break;
+    case "settings": togglePanel("settings"); break;
     case "translate":
       settings.trans = !settings.trans; save("cw_settings", settings);
       k.classList.toggle("on", settings.trans);
@@ -1345,7 +1805,7 @@ function doAct(act, k) {
 /* ============================================================
  * 语音（系统 SpeechRecognizer，免费）
  * ============================================================ */
-var voice = { active: false, cancel: false, heard: false, bars: [], tick: 0, tStart: null, tMax: null, tResult: null };
+var voice = { active: false, cancel: false, heard: false, bars: [], tick: 0, tStart: null, tMax: null, tResult: null, tAuto: null };
 function setSpaceVoicing(on) { var _s = document.querySelector("#space"); if (_s) _s.classList.toggle("voicing", on); }
 
 function initWave() {
@@ -1359,22 +1819,26 @@ function initWave() {
   }
 }
 function renderWave(level) {
+  // 真实音量示波：以中线为基准、中间高两边低，整体高度直接由真实 RMS(0-100) 驱动
   var L0 = Math.max(0, Math.min(1, level / 100));
-  for (var i = 0; i < voice.bars.length; i++) {
-    var ph = Math.abs(Math.sin((i + voice.tick) * 0.55));
-    var h = 6 + L0 * 44 * (0.3 + 0.7 * ph);
-    voice.bars[i].style.height = Math.max(6, Math.min(50, h)) + "px";
+  var n = voice.bars.length, mid = (n - 1) / 2;
+  for (var i = 0; i < n; i++) {
+    var dist = Math.abs(i - mid) / mid;        // 0=中间 1=边缘
+    var shape = 1 - dist * dist;               // 中间高、两侧低
+    var jitter = 0.72 + Math.random() * 0.56;  // 轻微自然抖动
+    var h = 6 + L0 * 46 * shape * jitter;
+    voice.bars[i].style.height = Math.max(6, Math.min(52, h)) + "px";
   }
-  voice.tick++;
 }
 function clearVoiceTimers() {
   if (voice.tStart) { clearTimeout(voice.tStart); voice.tStart = null; }
   if (voice.tMax) { clearTimeout(voice.tMax); voice.tMax = null; }
   if (voice.tResult) { clearTimeout(voice.tResult); voice.tResult = null; }
+  if (voice.tAuto) { clearTimeout(voice.tAuto); voice.tAuto = null; }
 }
 function armVoiceTimers() {
   clearVoiceTimers();
-  voice.tStart = setTimeout(function () { if (voice.active && !voice.heard) voiceError("NOVOICE"); }, 10000);
+  voice.tStart = setTimeout(function () { if (voice.active && !voice.heard) voiceError("NOVOICE"); }, 6000);
 }
 function onVoiceHeard() {
   if (voice.heard) return;
@@ -1382,7 +1846,7 @@ function onVoiceHeard() {
   if (voice.tStart) { clearTimeout(voice.tStart); voice.tStart = null; }
   voice.tMax = setTimeout(function () {
     if (voice.active) { bridge(function (b) { b.stopVoice(); }); voiceError("TIMEOUT"); }
-  }, 16000);
+  }, 12000);
 }
 function startVoice() {
   if (!B || typeof B.startVoice !== "function") { toast("当前环境不支持语音"); return; }
@@ -1405,7 +1869,7 @@ function stopVoice() {
   $("#voStatus").textContent = "识别中…";
   renderWave(8);
   clearVoiceTimers();
-  voice.tResult = setTimeout(function () { voiceError("TIMEOUT"); }, 8000);
+  voice.tResult = setTimeout(function () { closeVoice(); toast("未识别到语音，请重试"); }, 3000);
   L("语音停止,等待结果");
 }
 function cancelVoice() {
@@ -1448,6 +1912,12 @@ function voiceError(code, msg) {
   $("#voPerm").style.display = "";
   renderWave(0);
   L("语音错误 " + code + " " + (msg || ""));
+  // 2.6s 后自动关闭遮罩、恢复键盘（错误页不困住用户；也可点右上角 X 立即关闭）
+  if (voice.tAuto) clearTimeout(voice.tAuto);
+  voice.tAuto = setTimeout(function () {
+    voice.active = false; setSpaceVoicing(false);
+    $("#voiceOverlay").classList.remove("show");
+  }, 2600);
 }
 
 /* ============================================================
@@ -1469,8 +1939,11 @@ function applySettings() {
 function collectDiag() {
   var d = {};
   bridge(function (b) { if (b.diagnostics) { try { d = JSON.parse(b.diagnostics()); } catch (e) {} } });
-  d.app = "云五笔·玻璃键盘 lite v3.0";
+  d.app = "云五笔·玻璃键盘 lite v3.8";
   d.mode = state.mode; d.panel = state.panel; d.shift = state.shift;
+  d.wubi = window.WUBI_META || null;
+  d.pinyin = window.PY_META || null;
+  d.telemetry = { on: !!settings.telemetry, queued: teleQueue.length };
   d.clips = state.clips.length;
   d.settings = settings;
   d.recentWords = state.recent.length;
@@ -1519,15 +1992,16 @@ function resetForNewInput() {
   var secret = state.isPassword || state.numPassword;
   // 文本密码框：强制英文模式、不自动大写（默认小写，可 Shift 切换）；普通框恢复用户模式、默认大写
   if (state.isPassword) state.mode = "en";
-  else if (!state.numPassword) state.mode = state.userMode;
+  else if (!state.numPassword) state.mode = "smart";   // 普通框默认混模式（五笔+拼音+英文都能出），用户无需分辨模式；手动临时切换不跨输入框
   state.shift = state.isPassword ? "lower" : "upper";
+  state.shiftLock = false;   // 界面重新显示：复位上档大写态
   document.body.classList.toggle("pw-mode", !!state.isPassword);
   document.body.classList.toggle("numpw-mode", !!state.numPassword);
   // 数字密码 → 数字盘；其余 → 字母主面板，不残留子面板
   showPanel(state.numPassword ? "number" : "letters");
   renderCalc();
   renderCands(); renderLetterFaces();
-  if (secret) { state.ctxCands = []; renderCands(); }  // 密码框：不联想、不翻译、不读剪贴板
+  if (secret) { clearTimeout(ctxTimer); state.ctxCands = []; state.enPre = ""; renderCands(); }  // 密码框：取消待跑联想、不翻译、不读剪贴板
   else { pullClip(); scheduleCtx(); }
   L(secret ? "密码框：关闭联想/翻译/自动大写" : "恢复默认状态");
 }
@@ -1540,9 +2014,17 @@ window.KB = {
   onSelection: function () { L("onSelection"); scheduleCtx(); },
   voiceState: function (s) {
     L("voiceState:" + s);
-    if (s === "ready") $("#voStatus").textContent = "请说话…";
+    if (s === "downloading") {
+      $("#voStatus").textContent = "首次使用，正在下载离线语音模型（约228MB，建议WiFi）…";
+      $("#voPartial").textContent = "下载完成后可永久离线识别普通话 / 粤语 / 英语";
+    }
+    else if (s === "ready") $("#voStatus").textContent = "请说话…";
     else if (s === "listening") { $("#voStatus").textContent = "正在聆听…"; onVoiceHeard(); }
     else if (s === "processing") $("#voStatus").textContent = "识别中…";
+  },
+  voiceProgress: function (p) {
+    p = Math.max(0, Math.min(100, p));
+    $("#voStatus").textContent = "正在下载离线语音模型 " + p + "%（建议保持WiFi）…";
   },
   voiceLevel: function (rms) {
     var dot = $("#voDot");
@@ -1579,6 +2061,13 @@ window.KB = {
   }
 };
 
+function closeVoice() {
+  clearVoiceTimers();
+  voice.active = false;
+  setSpaceVoicing(false);
+  $("#voiceOverlay").classList.remove("show");
+}
+
 /* ============================================================
  * 初始化
  * ============================================================ */
@@ -1611,7 +2100,7 @@ function bindStatic() {
   });
   $("#diagShare").addEventListener("click", function () {
     var txt = collectDiag();
-    bridge(function (b) { b.share("【云五笔·玻璃键盘 v3.0 问题反馈】\n" + txt); });
+    bridge(function (b) { b.share("【云五笔·玻璃键盘 v3.8 问题反馈】\n" + txt); });
     if (!isApk()) toast("真机上可调起微信/QQ/邮件分享");
   });
 }
@@ -1663,13 +2152,12 @@ function init() {
   applyLayout();
   setTimeout(applyLayout, 350);   // 大词库解析后窗口稳定，补报高度（治首次 insets=0）
   setTimeout(applyLayout, 1000);
-  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v3.0 · 端侧仅简码+常用单字(约80KB)；词组与其余单字云端按需加载，离线降级";
+  $("#verLabel").textContent = "云五笔·玻璃键盘 lite v3.8 · 端侧含全码单字+二/三字高频词+高频四字；长尾词云端按需、核心离线可用；首次语音按需下载离线模型（约228MB）";
   if (!isApk()) {
     document.body.classList.add("preview");
     toast("浏览器预览：点击输入框获得焦点后试用");
   }
   L("初始化完成");
-  setTimeout(buildSug, 0); // 联想索引延迟构建，不阻塞首屏键盘显示
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
 else init();

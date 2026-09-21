@@ -1,14 +1,17 @@
-// 云端分片 = 完整词库减去端侧（端侧已含简码/top单字/全部两·三字词），故只放四字以上长词与被砍单字，分片更小、拉取更快。
+// 云端分片 = 完整词库 v31 减去端侧 lite；只放端侧没有的（长词/被砍单字），按编码前两字符切片。
 const fs = require("fs"), vm = require("vm");
-function load(file) {
+function loadIndex(file) {
   const s = { window: {} }; vm.createContext(s);
   vm.runInContext(fs.readFileSync(file, "utf8"), s);
   return s.window.WUBI_INDEX;
 }
-const FULL = load("data_wubi.full.v30.js");
-const LITE = load("CloudWubiKeyboard/app/src/main/assets/web/data_wubi.js");
+const FULL = loadIndex("data_wubi.full.v31.js");
+const LITE = {};
+const liteDir = "CloudWubiKeyboard/app/src/main/assets/web/lite/";
+fs.readdirSync(liteDir).forEach(f => Object.assign(LITE, JSON.parse(fs.readFileSync(liteDir + f))));
 const OUT = "cloud";
 if (!fs.existsSync(OUT)) fs.mkdirSync(OUT);
+fs.readdirSync(OUT).forEach(f => fs.unlinkSync(OUT + "/" + f));
 const shards = {};
 Object.keys(FULL).forEach(code => {
   const have = new Set((LITE[code] || []).map(o => o.t));

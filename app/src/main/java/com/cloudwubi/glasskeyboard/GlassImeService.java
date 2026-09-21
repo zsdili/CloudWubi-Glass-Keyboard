@@ -134,6 +134,8 @@ public class GlassImeService extends InputMethodService {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
+        s.setAllowFileAccessFromFileURLs(true);
+        s.setAllowUniversalAccessFromFileURLs(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         web.setFocusable(false);
@@ -269,7 +271,13 @@ public class GlassImeService extends InputMethodService {
         return out;
     }
 
+    /** 语音入口：系统 SpeechRecognizer（真机自带引擎、零体积、免费）；云端语音作为在线兜底。 */
     private void startVoice() {
+        if (!hasMicPermission()) { js("KB.voiceError('mic-permission');"); return; }
+        startSystemVoice();
+    }
+
+    private void startSystemVoice() {
         if (!hasMicPermission()) { js("KB.voiceError('mic-permission');"); return; }
         // 队列：手动指定引擎优先，其余按评分作为 fallback（去重）
         java.util.List<EngineInfo> all = enumerateEngines();

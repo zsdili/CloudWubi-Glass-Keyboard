@@ -115,15 +115,30 @@
         <div class="set-row"><span>按键音</span><button class="toggle on" data-set="sound" type="button"></button></div>
         <div class="set-row"><span>震动反馈</span><button class="toggle on" data-set="vib" type="button"></button></div>
         <div class="set-row"><span>玻璃模糊</span><button class="toggle on" data-set="blur" type="button"></button></div>
+        <div class="set-group">拼音输入（混打 / 纯拼音模式下生效；简拼始终可用）</div>
+        <div class="set-row"><span>双拼方式（关=全拼）</span><button class="toggle" data-set="pyDouble" type="button"></button></div>
+        <div class="set-group">双拼方案（开启双拼后生效，单选）</div>
+        <div class="dp-row">
+          <button class="set-action sel" data-dp="flypy" type="button">小鹤</button>
+          <button class="set-action" data-dp="zrm" type="button">自然码</button>
+          <button class="set-action" data-dp="mspy" type="button">微软</button>
+          <button class="set-action" data-dp="abc" type="button">智能ABC</button>
+          <button class="set-action" data-dp="pyjj" type="button">加加</button>
+        </div>
         <button class="set-action primary" id="setMic" type="button">授权 / 检测麦克风</button>
         <div class="set-group">语音引擎（识别不出结果时可手动切换；自动模式按国内优先）</div>
         <div id="engineList"></div>
-        <div class="set-group">本地高频词（自动划词学习，仅存本机、不上传）</div>
+        <div class="set-group">本地高频词（自动划词学习，仅存本机；点“×”可删除）</div>
         <div class="set-stat" id="localFreqStat"></div>
+        <div class="local-freq-list" id="localFreqList"></div>
+        <div class="set-group">改进计划（默认关闭；开启后匿名上传词频用于优化，可随时关闭）</div>
+        <div class="set-row"><span>匿名上传词频</span><button class="toggle" data-set="telemetry" type="button"></button></div>
+        <div class="set-stat" id="teleStat"></div>
         <div class="set-group">数据管理（可一键清空，仅存本机）</div>
         <button class="set-action" id="clearUserWords" type="button">清空本地高频词</button>
         <button class="set-action" id="clearRecent" type="button">清空最近用字记录</button>
         <div class="set-group">反馈与诊断（开发阶段）</div>
+        <div class="set-stat" id="wubiHealth"></div>
         <button class="set-action" id="diagCopy" type="button">复制诊断信息</button>
         <button class="set-action" id="diagShare" type="button">反馈问题（微信/QQ/邮件分享）</button>
         <pre class="diag-view" id="diagView"></pre>
@@ -146,8 +161,8 @@
     </div>
   </div>
 </div>
-<script src="data_wubi.js"></script>
 <script src="data_en.min.js"></script>
+<script src="context_scenes.min.js"></script>
 <script src="app.min.js"></script>
 </body>
 </html>
